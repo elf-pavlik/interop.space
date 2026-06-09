@@ -12,7 +12,7 @@ export class DcentQuest {
     const scripts = source.directory("temporal/scripts")
     const dynamicConfig = source.directory("temporal/dynamicconfig")
 
-    const pgData = dag.cacheVolume("temporal-postgres-data-v2")
+    const pgData = dag.cacheVolume("temporal-pg-data")
 
     const pg = dag.container()
       .from(`postgres:${POSTGRESQL_VERSION}`)
@@ -20,6 +20,11 @@ export class DcentQuest {
       .withEnvVariable("POSTGRES_USER", "temporal")
       .withMountedCache("/var/lib/postgresql/data", pgData)
       .withExposedPort(5432)
+      .withEntrypoint(["/bin/sh", "-c",
+        // pg_resetwal recovers from hard-shutdown corruption without data loss
+        "pg_resetwal -f /var/lib/postgresql/data 2>/dev/null; " +
+        "exec docker-entrypoint.sh postgres"
+      ])
       .asService({ useEntrypoint: true })
 
     await dag.container()
