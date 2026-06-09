@@ -80,19 +80,17 @@ export class DcentQuest {
     const temporal = await this.temporal(source)
     const worker = await this._worker(source, temporal)
 
-    const npmCache = dag.cacheVolume("temporal-npm-cache")
     await dag.container()
-      .from("node:22-slim")
+      .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
       .withServiceBinding("worker", worker)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withDirectory("/app", source, {
         exclude: [".dagger", ".devbox", ".git", "node_modules"],
       })
-      .withMountedCache("/root/.npm", npmCache)
       .withWorkdir("/app")
-      .withExec(["npm", "install"])
-      .withExec(["npx", "tsx", "src/client.ts"])
+      .withExec(["bun", "install"])
+      .withExec(["bun", "run", "src/client.ts"])
       .sync()
 
     const ui = dag.container()
@@ -108,19 +106,16 @@ export class DcentQuest {
   }
 
   async _worker(source: Directory, temporal: Service): Promise<Service> {
-    const npmCache = dag.cacheVolume("temporal-npm-cache")
-
     return dag.container()
-      .from("node:22-slim")
+      .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withDirectory("/app", source, {
         exclude: [".dagger", ".devbox", ".git", "node_modules"],
       })
-      .withMountedCache("/root/.npm", npmCache)
       .withWorkdir("/app")
-      .withExec(["npm", "install"])
-      .withEntrypoint(["npx", "tsx", "src/worker.ts"])
+      .withExec(["bun", "install"])
+      .withEntrypoint(["bun", "run", "src/worker.ts"])
       .asService({ useEntrypoint: true })
   }
 }
