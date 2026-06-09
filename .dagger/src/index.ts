@@ -9,10 +9,10 @@ const TEMPORAL_UI_VERSION = "2.49.1"
 export class DcentQuest {
   @func()
   async temporal(source: Directory): Promise<Service> {
-    const scripts = source.directory("scripts")
-    const dynamicConfig = source.directory("dynamicconfig")
+    const scripts = source.directory("temporal/scripts")
+    const dynamicConfig = source.directory("temporal/dynamicconfig")
 
-    const pgData = dag.cacheVolume("temporal-postgres-data")
+    const pgData = dag.cacheVolume("temporal-postgres-data-v2")
 
     const pg = dag.container()
       .from(`postgres:${POSTGRESQL_VERSION}`)
@@ -55,6 +55,9 @@ export class DcentQuest {
       .withExposedPort(7233)
       .withEntrypoint(["/bin/sh", "-c",
         "while ! nc -z postgresql 5432 2>/dev/null; do sleep 1; done && " +
+        // pg_isready is not available in this image, so we sleep briefly
+        // to let Postgres finish crash recovery before Temporal connects
+        "sleep 2 && " +
         "unset OTEL_EXPORTER_OTLP_TRACES_PROTOCOL && " +
         "exec /etc/temporal/entrypoint.sh start"
       ])
@@ -75,15 +78,49 @@ export class DcentQuest {
   @func()
   async temporalWithUi(source: Directory): Promise<Service> {
     const temporal = await this.temporal(source)
+    const worker = await this._worker(source, temporal)
+
+    const npmCache = dag.cacheVolume("temporal-npm-cache")
+    await dag.container()
+      .from("node:22-slim")
+      .withServiceBinding("temporal", temporal)
+      .withServiceBinding("worker", worker)
+      .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
+      .withDirectory("/app", source, {
+        exclude: [".dagger", ".devbox", ".git", "node_modules"],
+      })
+      .withMountedCache("/root/.npm", npmCache)
+      .withWorkdir("/app")
+      .withExec(["npm", "install"])
+      .withExec(["npx", "tsx", "src/client.ts"])
+      .sync()
 
     const ui = dag.container()
       .from(`temporalio/ui:${TEMPORAL_UI_VERSION}`)
       .withServiceBinding("temporal", temporal)
+      .withServiceBinding("worker", worker)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withEnvVariable("TEMPORAL_CORS_ORIGINS", "http://localhost:3000")
       .withExposedPort(8080)
       .asService({ useEntrypoint: true })
 
     return ui
+  }
+
+  async _worker(source: Directory, temporal: Service): Promise<Service> {
+    const npmCache = dag.cacheVolume("temporal-npm-cache")
+
+    return dag.container()
+      .from("node:22-slim")
+      .withServiceBinding("temporal", temporal)
+      .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
+      .withDirectory("/app", source, {
+        exclude: [".dagger", ".devbox", ".git", "node_modules"],
+      })
+      .withMountedCache("/root/.npm", npmCache)
+      .withWorkdir("/app")
+      .withExec(["npm", "install"])
+      .withEntrypoint(["npx", "tsx", "src/worker.ts"])
+      .asService({ useEntrypoint: true })
   }
 }
