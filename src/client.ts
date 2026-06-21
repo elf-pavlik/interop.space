@@ -12,9 +12,11 @@ async function run() {
     workflowId: `hello-world-${Date.now()}`,
   })
 
-  console.log(`Started workflow ${handle.workflowId}`)
-  const result = await handle.result()
-  console.log(`Result: ${result}`)
+  const fediverse = await client.workflow.start('fediverseProfile', {
+    taskQueue: 'fediverse',
+    args: ['elfpavlik@w3c.social'],
+    workflowId: `fediverse-${Date.now()}`,
+  })
 }
 
 run().catch((err) => {
