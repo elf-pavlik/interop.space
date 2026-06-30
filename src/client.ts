@@ -1,5 +1,7 @@
 import { Client, Connection } from '@temporalio/client'
 
+const ID = "https://elf-pavlik.hackers4peace.net"
+
 async function run() {
   const address = process.env.TEMPORAL_ADDRESS ?? 'temporal:7233'
   const connection = await Connection.connect({ address })
@@ -8,7 +10,7 @@ async function run() {
 
   const handle = await client.workflow.start('greetingWorkflow', {
     taskQueue: 'greeting',
-    args: ['World'],
+    args: [ID],
     workflowId: `hello-world-${Date.now()}`,
   })
 

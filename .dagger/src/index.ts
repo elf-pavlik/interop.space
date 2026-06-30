@@ -4,6 +4,7 @@ const POSTGRESQL_VERSION = "16"
 const TEMPORAL_VERSION = "1.31.0"
 const TEMPORAL_ADMINTOOLS_VERSION = "1.31.0"
 const TEMPORAL_UI_VERSION = "2.49.1"
+const SPARQL_ENDPOINT = 'http://sparql/sparql'
 
 @object()
 export class DcentQuest {
@@ -81,17 +82,58 @@ export class DcentQuest {
   }
 
   @func()
+  sparqlService(source: Directory): Service {
+    const oxigraph = dag
+      .container()
+      .from('oxigraph/oxigraph:latest')
+      .withExposedPort(7878)
+      .asService({ args: ['oxigraph', 'serve', '--location', '/data', '--bind', '0.0.0.0:7878'] })
+
+    return dag
+      .container()
+      .from('nginx:alpine')
+      .withMountedFile(
+        '/etc/nginx/nginx.conf',
+        source.file('.dagger/oxigraph.nginx.conf')
+      )
+      .withServiceBinding('oxigraph', oxigraph)
+      .withExposedPort(80)
+      .asService()
+  }
+
+  async worker(source: Directory, temporal: Service, sparql: Service): Promise<Service> {
+    return dag.container()
+      .from("oven/bun:1.3")
+      .withServiceBinding("temporal", temporal)
+      .withServiceBinding("sparql", sparql)
+      .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
+      .withEnvVariable("SPARQL_ENDPOINT", SPARQL_ENDPOINT)
+      .withEnvVariable("DATASET_PATH", "/app/data/dataset.nq")
+      .withFile("/app/data/dataset.nq", source.file("test/dataset.nq"))
+      .withDirectory("/app", source, {
+        exclude: [".dagger", ".devbox", ".git"],
+      })
+      .withWorkdir("/app")
+      .withExec(["bun", "install"])
+      .withEntrypoint(["bun", "run", "src/worker.ts"])
+      .asService({ useEntrypoint: true })
+  }
+
+  @func()
   async temporalWithUi(source: Directory): Promise<Service> {
     const temporal = await this.temporal(source)
-    const worker = await this._worker(source, temporal)
+    const sparql = this.sparqlService(source)
+    const worker = await this.worker(source, temporal, sparql)
+    await sparql.id()
 
     await dag.container()
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
       .withServiceBinding("worker", worker)
+      .withServiceBinding("sparql", sparql)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withDirectory("/app", source, {
-        exclude: [".dagger", ".devbox", ".git", "node_modules"],
+        exclude: [".dagger", ".devbox", ".git"],
       })
       .withWorkdir("/app")
       .withExec(["bun", "install"])
@@ -102,25 +144,12 @@ export class DcentQuest {
       .from(`temporalio/ui:${TEMPORAL_UI_VERSION}`)
       .withServiceBinding("temporal", temporal)
       .withServiceBinding("worker", worker)
+      .withServiceBinding("sparql", sparql)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withEnvVariable("TEMPORAL_CORS_ORIGINS", "http://localhost:3000")
       .withExposedPort(8080)
       .asService({ useEntrypoint: true })
 
     return ui
-  }
-
-  async _worker(source: Directory, temporal: Service): Promise<Service> {
-    return dag.container()
-      .from("oven/bun:1.3")
-      .withServiceBinding("temporal", temporal)
-      .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
-      .withDirectory("/app", source, {
-        exclude: [".dagger", ".devbox", ".git", "node_modules"],
-      })
-      .withWorkdir("/app")
-      .withExec(["bun", "install"])
-      .withEntrypoint(["bun", "run", "src/worker.ts"])
-      .asService({ useEntrypoint: true })
   }
 }
