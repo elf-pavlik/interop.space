@@ -10,15 +10,17 @@
     "grpcurl": "latest",
     "bun": "latest",
     "xh": "latest",
-    "ducker": "latest"
+    "ducker": "latest",
+    "dotnet-sdk": "latest"
   },
   "env": {
-    "_EXPERIMENTAL_DAGGER_RUNNER_HOST": "docker-container://dagger-engine-v0.21.6"
+    "_EXPERIMENTAL_DAGGER_RUNNER_HOST": "docker-container://dagger-engine-v0.21.7"
   },
   "shell": {
     "init_hook": ["echo 'Welcome to devbox!' > /dev/null"],
     "scripts": {
       "up": "dagger call temporal-with-ui --source=. up --ports=8080:8080",
+      "build": "dotnet build dotnet/Worker/Worker.csproj",
       "test": ["echo \"Error: no test specified\" && exit 1"]
     }
   }

@@ -1,10 +1,10 @@
-import { dag, object, func, Service, Directory } from "@dagger.io/dagger";
+import { dag, object, func, Service, Directory } from "@dagger.io/dagger"
 
 const POSTGRESQL_VERSION = "16"
 const TEMPORAL_VERSION = "1.31.0"
 const TEMPORAL_ADMINTOOLS_VERSION = "1.31.0"
 const TEMPORAL_UI_VERSION = "2.49.1"
-const SPARQL_ENDPOINT = 'http://sparql/sparql'
+const SPARQL_ENDPOINT = "http://sparql/sparql"
 
 @object()
 export class DcentQuest {
@@ -15,28 +15,36 @@ export class DcentQuest {
 
     const pgData = dag.cacheVolume("temporal-pg-data")
 
-    const pg = dag.container()
+    const pg = dag
+      .container()
       .from(`postgres:${POSTGRESQL_VERSION}`)
       .withEnvVariable("POSTGRES_PASSWORD", "temporal")
       .withEnvVariable("POSTGRES_USER", "temporal")
       .withMountedCache("/var/lib/postgresql/data", pgData)
       .withExposedPort(5432)
-      .withEntrypoint(["/bin/sh", "-c",
+      .withEntrypoint([
+        "/bin/sh",
+        "-c",
         // pg_resetwal recovers from hard-shutdown corruption without data loss
         "pg_resetwal -f /var/lib/postgresql/data 2>/dev/null; " +
-        "exec docker-entrypoint.sh postgres"
+          "exec docker-entrypoint.sh postgres",
       ])
       .asService({ useEntrypoint: true })
 
-    await dag.container()
+    await dag
+      .container()
       .from(`postgres:${POSTGRESQL_VERSION}`)
       .withServiceBinding("postgresql", pg)
       .withEntrypoint([])
-      .withExec(["/bin/sh", "-c",
-        "for i in $(seq 60); do pg_isready -U temporal -h postgresql && exit 0; done; exit 1"])
+      .withExec([
+        "/bin/sh",
+        "-c",
+        "for i in $(seq 60); do pg_isready -U temporal -h postgresql && exit 0; done; exit 1",
+      ])
       .sync()
 
-    await dag.container()
+    await dag
+      .container()
       .from(`temporalio/admin-tools:${TEMPORAL_ADMINTOOLS_VERSION}`)
       .withServiceBinding("postgresql", pg)
       .withEnvVariable("POSTGRES_SEEDS", "postgresql")
@@ -47,7 +55,8 @@ export class DcentQuest {
       .withExec(["/bin/sh", "/scripts/setup-postgres.sh"])
       .sync()
 
-    const temporal = dag.container()
+    const temporal = dag
+      .container()
       .from(`temporalio/server:${TEMPORAL_VERSION}`)
       .withServiceBinding("postgresql", pg)
       .withEnvVariable("DB", "postgres12")
@@ -56,20 +65,26 @@ export class DcentQuest {
       .withEnvVariable("POSTGRES_PWD", "temporal")
       .withEnvVariable("POSTGRES_SEEDS", "postgresql")
       .withEnvVariable("BIND_ON_IP", "0.0.0.0")
-      .withEnvVariable("DYNAMIC_CONFIG_FILE_PATH", "config/dynamicconfig/development-sql.yaml")
+      .withEnvVariable(
+        "DYNAMIC_CONFIG_FILE_PATH",
+        "config/dynamicconfig/development-sql.yaml",
+      )
       .withDirectory("/etc/temporal/config/dynamicconfig", dynamicConfig)
       .withExposedPort(7233)
-      .withEntrypoint(["/bin/sh", "-c",
+      .withEntrypoint([
+        "/bin/sh",
+        "-c",
         "while ! nc -z postgresql 5432 2>/dev/null; do sleep 1; done && " +
-        // pg_isready is not available in this image, so we sleep briefly
-        // to let Postgres finish crash recovery before Temporal connects
-        "sleep 2 && " +
-        "unset OTEL_EXPORTER_OTLP_TRACES_PROTOCOL && " +
-        "exec /etc/temporal/entrypoint.sh start"
+          // pg_isready is not available in this image, so we sleep briefly
+          // to let Postgres finish crash recovery before Temporal connects
+          "sleep 2 && " +
+          "unset OTEL_EXPORTER_OTLP_TRACES_PROTOCOL && " +
+          "exec /etc/temporal/entrypoint.sh start",
       ])
       .asService({ useEntrypoint: true })
 
-    await dag.container()
+    await dag
+      .container()
       .from(`temporalio/admin-tools:${TEMPORAL_ADMINTOOLS_VERSION}`)
       .withServiceBinding("temporal", temporal)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
@@ -85,24 +100,38 @@ export class DcentQuest {
   sparqlService(source: Directory): Service {
     const oxigraph = dag
       .container()
-      .from('oxigraph/oxigraph:latest')
+      .from("oxigraph/oxigraph:latest")
       .withExposedPort(7878)
-      .asService({ args: ['oxigraph', 'serve', '--location', '/data', '--bind', '0.0.0.0:7878'] })
+      .asService({
+        args: [
+          "oxigraph",
+          "serve",
+          "--location",
+          "/data",
+          "--bind",
+          "0.0.0.0:7878",
+        ],
+      })
 
     return dag
       .container()
-      .from('nginx:alpine')
+      .from("nginx:alpine")
       .withMountedFile(
-        '/etc/nginx/nginx.conf',
-        source.file('.dagger/oxigraph.nginx.conf')
+        "/etc/nginx/nginx.conf",
+        source.file(".dagger/oxigraph.nginx.conf"),
       )
-      .withServiceBinding('oxigraph', oxigraph)
+      .withServiceBinding("oxigraph", oxigraph)
       .withExposedPort(80)
       .asService()
   }
 
-  async worker(source: Directory, temporal: Service, sparql: Service): Promise<Service> {
-    return dag.container()
+  async worker(
+    source: Directory,
+    temporal: Service,
+    sparql: Service,
+  ): Promise<Service> {
+    return dag
+      .container()
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
       .withServiceBinding("sparql", sparql)
@@ -120,17 +149,40 @@ export class DcentQuest {
   }
 
   @func()
+  async dotnetWorker(source: Directory, temporal: Service): Promise<Service> {
+    return dag
+      .container()
+      .from("mcr.microsoft.com/dotnet/sdk:8.0")
+      .withServiceBinding("temporal", temporal)
+      .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
+      .withDirectory("/src", source.directory("dotnet"))
+      .withWorkdir("/src/Worker")
+      .withExec(["dotnet", "restore"])
+      .withExec([
+        "dotnet",
+        "publish",
+        "-c",
+        "Release",
+        "-o",
+        "/app",
+        "--no-restore",
+      ])
+      .withEntrypoint(["dotnet", "/app/Worker.dll"])
+      .asService({ useEntrypoint: true })
+  }
+
+  @func()
   async temporalWithUi(source: Directory): Promise<Service> {
     const temporal = await this.temporal(source)
     const sparql = this.sparqlService(source)
-    const worker = await this.worker(source, temporal, sparql)
+    const tsWorker = await this.worker(source, temporal, sparql)
+    const dotnetWorker = await this.dotnetWorker(source, temporal)
     await sparql.id()
 
-    await dag.container()
+    await dag
+      .container()
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
-      .withServiceBinding("worker", worker)
-      .withServiceBinding("sparql", sparql)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withDirectory("/app", source, {
         exclude: [".dagger", ".devbox", ".git"],
@@ -140,10 +192,12 @@ export class DcentQuest {
       .withExec(["bun", "run", "src/client.ts"])
       .sync()
 
-    const ui = dag.container()
+    const ui = dag
+      .container()
       .from(`temporalio/ui:${TEMPORAL_UI_VERSION}`)
       .withServiceBinding("temporal", temporal)
-      .withServiceBinding("worker", worker)
+      .withServiceBinding("ts-worker", tsWorker)
+      .withServiceBinding("dotnet-worker", dotnetWorker)
       .withServiceBinding("sparql", sparql)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withEnvVariable("TEMPORAL_CORS_ORIGINS", "http://localhost:3000")

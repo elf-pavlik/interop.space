@@ -1,6 +1,6 @@
 import { Client, Connection } from '@temporalio/client'
 
-const ID = "https://elf-pavlik.hackers4peace.net"
+const ID = 'https://elf-pavlik.hackers4peace.net'
 
 async function run() {
   const address = process.env.TEMPORAL_ADDRESS ?? 'temporal:7233'
@@ -14,7 +14,7 @@ async function run() {
     workflowId: `hello-world-${Date.now()}`,
   })
 
-  const fediverse = await client.workflow.start('fediverseProfile', {
+  const fediverse = await client.workflow.start('FediverseWorkflow', {
     taskQueue: 'fediverse',
     args: ['elfpavlik@w3c.social'],
     workflowId: `fediverse-${Date.now()}`,

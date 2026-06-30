@@ -7,7 +7,7 @@ async function connectWithRetry(address) {
   while (true) {
     try {
       return await NativeConnection.connect({
-        address
+        address,
       })
     } catch (err) {
       console.error('Temporal not ready, retrying...', err.message)
@@ -29,15 +29,7 @@ async function run() {
       activities,
     })
 
-    const fediverse = await Worker.create({
-      connection,
-      taskQueue: 'fediverse',
-      workflowsPath: new URL('../src/protocols/fediverse/workflows.ts', import.meta.url).pathname,
-      activities: fediverseActivities,
-    })
-
-    // Run all workers simultaneously
-    await Promise.all([worker.run(), fediverse.run()])
+    await worker.run()
   } finally {
     await connection.close()
   }
