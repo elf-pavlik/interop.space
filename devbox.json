@@ -1,24 +1,25 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.2/.schema/devbox.schema.json",
-  "packages": [
-    "github:dagger/nix#packages.x86_64-linux.dagger",
-    "grpcurl@latest",
-    "bun@latest",
-    "xh@latest",
-    "ducker@latest"
-  ],
+  "packages": {
+    "github:dagger/nix#packages.aarch64-darwin.dagger": {
+      "platforms": ["aarch64-darwin"]
+    },
+    "github:dagger/nix#packages.x86_64-darwin.dagger": {
+      "platforms": ["x86_64-darwin"]
+    },
+    "grpcurl": "latest",
+    "bun": "latest",
+    "xh": "latest",
+    "ducker": "latest"
+  },
   "env": {
     "_EXPERIMENTAL_DAGGER_RUNNER_HOST": "docker-container://dagger-engine-v0.21.6"
   },
   "shell": {
-    "init_hook": [
-      "echo 'Welcome to devbox!' > /dev/null"
-    ],
+    "init_hook": ["echo 'Welcome to devbox!' > /dev/null"],
     "scripts": {
       "up": "dagger call temporal-with-ui --source=. up --ports=8080:8080",
-      "test": [
-        "echo \"Error: no test specified\" && exit 1"
-      ]
+      "test": ["echo \"Error: no test specified\" && exit 1"]
     }
   }
 }

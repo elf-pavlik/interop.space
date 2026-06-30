@@ -101,9 +101,9 @@
       "last_modified": "2026-06-14T16:21:05Z",
       "resolved": "github:NixOS/nixpkgs/9eac87a12312b8f60dd52e1c6e1a265f6fc7f5fc?lastModified=1781454065&narHash=sha256-d2xfDjnfRuf%2FxYGdu9VVRHiav%2F2w5hDL%2F5cw2TuVAXw%3D"
     },
-    "github:dagger/nix#packages.x86_64-linux.dagger": {
-      "last_modified": "2026-06-11T20:27:33Z",
-      "resolved": "github:dagger/nix/a851a67032dfcb7669cd060d6330d4d8af53a9da?lastModified=1781209653&narHash=sha256-E8GUw7fmRLO96NBSr434tk1fgL13JqHCqM%2Bc4ZgLb4o%3D#packages.x86_64-linux.dagger"
+    "github:dagger/nix#packages.aarch64-darwin.dagger": {
+      "last_modified": "2026-06-17T17:43:00Z",
+      "resolved": "github:dagger/nix/c93d69f685b8a58eaa767eaaf189b0ac6f4f741a?lastModified=1781718180#packages.aarch64-darwin.dagger"
     },
     "grpcurl@latest": {
       "last_modified": "2026-05-21T08:15:18Z",
