@@ -3,11 +3,15 @@ import type { RouteDefinition } from '@solidjs/router'
 import { A } from '@solidjs/router'
 import Home from './routes/Home'
 import People from './routes/People'
+import Projects from './routes/Projects'
+import ProjectDetail from './routes/ProjectDetail'
 import { ThemeToggle } from './components/ThemeToggle'
 
 export const routes: RouteDefinition[] = [
   { path: '/', component: Home },
   { path: '/people', component: People },
+  { path: '/projects', component: Projects },
+  { path: '/projects/:id', component: ProjectDetail },
 ]
 
 const navLink =
@@ -26,6 +30,9 @@ const App: ParentComponent = (props) => {
           </A>
           <A href="/people" class={navLink} activeClass="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
             People
+          </A>
+          <A href="/projects" class={navLink} activeClass="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
+            Projects
           </A>
           <ThemeToggle />
         </nav>

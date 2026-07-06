@@ -8,3 +8,6 @@ dotnet/**/bin/
 dotnet/**/obj/
 dotnet/**/*.suo
 dotnet/**/*.user
+
+# SKILLS
+.agents/skills/gitbutler
