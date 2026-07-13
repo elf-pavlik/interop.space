@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Generated POCOs use only System.Text.Json (in-box); no package references. -->
+  </PropertyGroup>
+
+</Project>

@@ -5,6 +5,7 @@ open System.Net.Http
 open System.Text.Json
 open System.Threading.Tasks
 open Temporalio.Activities
+open Interop
 
 type FediverseActivities() =
     [<Activity>]

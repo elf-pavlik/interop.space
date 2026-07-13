@@ -1,5 +1,5 @@
 import { proxyActivities } from '@temporalio/workflow'
-import type { Profile } from '../../types/profile'
+import type { Profile } from '../../types'
 import type * as activities from './activities'
 
 const { getProfile, doWebfinger } = proxyActivities<typeof activities>({

@@ -1,4 +1,4 @@
-import type { Profile } from "../../types/profile";
+import type { Profile } from "../../types";
 
 export async function doWebfinger(id: string): Promise<any> {
   const [handle, domain] = id.split('@')

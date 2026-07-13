@@ -6,9 +6,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Profile.fs" />
     <Compile Include="Activities.fs" />
     <Compile Include="Workflows.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Gen\Gen.csproj" />
   </ItemGroup>
 
   <ItemGroup>

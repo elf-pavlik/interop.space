@@ -3,6 +3,11 @@ node_modules
 .prettierrc
 tmp/dataset.nq
 
+# Generated code from JSON Schema (run `devbox run generate`)
+typescript/src/gen/
+ui/src/gen/
+dotnet/Gen/gen/
+
 # .NET
 dotnet/**/bin/
 dotnet/**/obj/

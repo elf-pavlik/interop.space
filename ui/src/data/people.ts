@@ -1,6 +1,6 @@
-export type Person = {
-  id: string
-  name: string
+import type { Profile } from '../gen/profile'
+
+export type Person = Profile & {
   avatarUrl: string
 }
 

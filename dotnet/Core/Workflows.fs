@@ -4,6 +4,7 @@ open System
 open System.Text.Json
 open System.Threading.Tasks
 open Temporalio.Workflows
+open Interop
 
 [<Workflow>]
 type FediverseWorkflow() =
