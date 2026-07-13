@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    // Environment
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["bun"],
+
+    // Bun transpiles per-file; never emit from tsc
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+
+    // Interop
+    "allowJs": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+
+    // Strictness
+    "strict": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*.ts"]
+}

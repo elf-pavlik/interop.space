@@ -1,4 +1,4 @@
-import { Profile } from "../../types/profile";
+import type { Profile } from "../../types/profile";
 
 export async function doWebfinger(id: string): Promise<any> {
   const [handle, domain] = id.split('@')
@@ -13,5 +13,5 @@ export async function getProfile(id: string): Promise<Profile> {
       accept: 'application/activity+json'
     }
   })
-  return await response.json()
+  return (await response.json()) as Profile
 }

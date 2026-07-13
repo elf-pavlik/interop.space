@@ -138,10 +138,8 @@ export class DcentQuest {
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withEnvVariable("SPARQL_ENDPOINT", SPARQL_ENDPOINT)
       .withEnvVariable("DATASET_PATH", "/app/data/dataset.nq")
+      .withDirectory("/app", source.directory("typescript"))
       .withFile("/app/data/dataset.nq", source.file("test/dataset.nq"))
-      .withDirectory("/app", source, {
-        exclude: [".dagger", ".devbox", ".git"],
-      })
       .withWorkdir("/app")
       .withExec(["bun", "install"])
       .withEntrypoint(["bun", "run", "src/worker.ts"])
@@ -184,9 +182,7 @@ export class DcentQuest {
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
-      .withDirectory("/app", source, {
-        exclude: [".dagger", ".devbox", ".git"],
-      })
+      .withDirectory("/app", source.directory("typescript"))
       .withWorkdir("/app")
       .withExec(["bun", "install"])
       .withExec(["bun", "run", "src/client.ts"])

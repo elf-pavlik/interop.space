@@ -3,14 +3,14 @@ import { Worker, NativeConnection } from '@temporalio/worker'
 import * as activities from './activities'
 import * as fediverseActivities from './protocols/fediverse/activities'
 
-async function connectWithRetry(address) {
+async function connectWithRetry(address: string) {
   while (true) {
     try {
       return await NativeConnection.connect({
         address,
       })
     } catch (err) {
-      console.error('Temporal not ready, retrying...', err.message)
+      console.error('Temporal not ready, retrying...', err instanceof Error ? err.message : err)
       await sleep(500)
     }
   }

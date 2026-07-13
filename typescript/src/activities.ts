@@ -41,8 +41,10 @@ export async function greet(id: string): Promise<string> {
   const bindings = await fetcher.fetchBindings(endpoint, query)
 
   const results: Array<{ name: string }> = []
-  for await (const binding of bindings) {
-    results.push({ name: binding.name.value })
+  for await (const binding of bindings as AsyncIterable<Record<string, { value: string }>>) {
+    if (binding.name) {
+      results.push({ name: binding.name.value })
+    }
   }
 
   const name = results[0]?.name ?? 'Unknown'
