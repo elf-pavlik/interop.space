@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@comunica/query-sparql-rdfjs": "^5.3.0",
+    "n3": "^2.1.1"
+  }
+}
