@@ -8,13 +8,13 @@ async function run() {
 
   const client = new Client({ connection, namespace: 'default' })
 
-  const handle = await client.workflow.start('greetingWorkflow', {
+  const handle = await client.workflow.execute('greetingWorkflow', {
     taskQueue: 'greeting',
     args: [ID],
     workflowId: `hello-world-${Date.now()}`,
   })
 
-  const fediverse = await client.workflow.start('FediverseWorkflow', {
+  const fediverse = await client.workflow.execute('FediverseWorkflow', {
     taskQueue: 'fediverse',
     args: ['elfpavlik@w3c.social'],
     workflowId: `fediverse-${Date.now()}`,

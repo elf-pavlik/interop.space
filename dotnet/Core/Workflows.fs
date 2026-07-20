@@ -20,5 +20,7 @@ type FediverseWorkflow() =
             |> Seq.find (fun l -> l.GetProperty("rel").GetString() = "self")
         let href = selfLink.GetProperty("href").GetString()
 
-        return! Workflow.ExecuteActivityAsync<Profile>("GetProfile", [| href |], opts)
+        let! profile = Workflow.ExecuteActivityAsync<Profile>("GetProfile", [| href |], opts)
+
+        return! Workflow.ExecuteActivityAsync<Profile>("StoreProfile", [| profile |], opts)
     }

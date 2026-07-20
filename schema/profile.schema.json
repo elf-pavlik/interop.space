@@ -7,6 +7,7 @@
   "required": ["id", "name"],
   "properties": {
     "id": { "type": "string" },
-    "name": { "type": "string" }
+    "name": { "type": "string" },
+    "avatar": { "type": "string" }
   }
 }

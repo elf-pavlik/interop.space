@@ -153,6 +153,10 @@
       "last_modified": "2026-06-17T17:43:00Z",
       "resolved": "github:dagger/nix/c93d69f685b8a58eaa767eaaf189b0ac6f4f741a?lastModified=1781718180#packages.aarch64-darwin.dagger"
     },
+    "github:dagger/nix#packages.x86_64-linux.dagger": {
+      "last_modified": "2026-09-30T16:26:39Z",
+      "resolved": "github:dagger/nix/21ee7262e0ccfffba6bd43c9044fb4c5c8db2d91?lastModified=1790785599&narHash=sha256-QU%2FBReRMn7ntSjNQ2IwvGJ2qPHwmTLxRKYAuDzGVlnk%3D#packages.x86_64-linux.dagger"
+    },
     "grpcurl@latest": {
       "last_modified": "2026-07-08T21:13:06Z",
       "resolved": "github:NixOS/nixpkgs/389ed85304b281ca7f306cf8a1eb4378651ca44e#grpcurl",

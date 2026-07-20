@@ -9,11 +9,15 @@ const SPARQL_ENDPOINT = "http://sparql/sparql"
 @object()
 export class DcentQuest {
   @func()
-  async temporal(source: Directory): Promise<Service> {
+  async temporal(source: Directory, runId: string): Promise<Service> {
     const scripts = source.directory("temporal/scripts")
     const dynamicConfig = source.directory("temporal/dynamicconfig")
 
-    const pgData = dag.cacheVolume("temporal-pg-data")
+    // Unique volume per run: every `dagger call` starts a fresh Temporal
+    // Postgres, so no workflows/state linger across runs. Both exportDump and
+    // temporalWithUi re-run the client themselves, so per-run isolation is
+    // all we need (dump and up don't share stores).
+    const pgData = dag.cacheVolume(`temporal-pg-data-${runId}`)
 
     const pg = dag
       .container()
@@ -147,12 +151,14 @@ export class DcentQuest {
   }
 
   @func()
-  async dotnetWorker(source: Directory, temporal: Service): Promise<Service> {
+  async dotnetWorker(source: Directory, temporal: Service, sparql: Service): Promise<Service> {
     return dag
       .container()
       .from("mcr.microsoft.com/dotnet/sdk:8.0")
       .withServiceBinding("temporal", temporal)
+      .withServiceBinding("sparql", sparql)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
+      .withEnvVariable("SPARQL_ENDPOINT", SPARQL_ENDPOINT)
       .withDirectory("/src", source.directory("dotnet"))
       .withWorkdir("/src/Worker")
       .withExec(["dotnet", "restore"])
@@ -169,19 +175,24 @@ export class DcentQuest {
       .asService({ useEntrypoint: true })
   }
 
-  @func()
+  @func({ cache: "never" })
   async exportDump(source: Directory): Promise<File> {
-    const temporal = await this.temporal(source)
+    const runId = `run-${Date.now().toString(36)}`
+    const temporal = await this.temporal(source, runId)
     const sparql = this.sparqlService(source)
     const tsWorker = await this.worker(source, temporal, sparql)
-    const dotnetWorker = await this.dotnetWorker(source, temporal)
+    const dotnetWorker = await this.dotnetWorker(source, temporal, sparql)
     await sparql.id()
 
-    // Run the client to start workflows
+    // Run the client. It uses workflow.execute, so it blocks until both
+    // workflows complete — the workers must be bound here (not only to the
+    // dump container) so they pick up the tasks while the client waits.
     await dag
       .container()
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
+      .withServiceBinding("ts-worker", tsWorker)
+      .withServiceBinding("dotnet-worker", dotnetWorker)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withDirectory("/app", source.directory("typescript"))
       .withWorkdir("/app")
@@ -189,39 +200,44 @@ export class DcentQuest {
       .withExec(["bun", "run", "src/client.ts"])
       .sync()
 
-    // Dump data from the Oxigraph SPARQL endpoint.
-    // Bind workers to this container so they actually start processing
-    // tasks (otherwise they remain idle as unbound services).
-    // Poll until we get a non-empty response (workflows may still be seeding
-    // data when the client returns, so we keep trying until data appears).
+    // The client uses workflow.execute, so it only returns after both
+    // workflows (and their Oxigraph writes) have completed. A single fetch
+    // of the SPARQL endpoint is therefore enough.
+    // The RUN_ID env var makes this container's exec graph run-unique:
+    // without it, the contention-curl exec is identical across sessions and
+    // the engine replays the previous run's /dump.nq from cache.
     return dag
       .container()
       .from("alpine:latest")
+      .withEnvVariable("RUN_ID", runId)
       .withServiceBinding("sparql", sparql)
-      .withServiceBinding("ts-worker", tsWorker)
-      .withServiceBinding("dotnet-worker", dotnetWorker)
       .withExec(["apk", "add", "--no-cache", "curl"])
       .withExec([
         "sh", "-c",
-        "while ! curl -sS -f -H 'Accept: application/n-quads' " +
-          "http://sparql/sparql -o /dump.nq 2>/dev/null " +
-          "|| [ ! -s /dump.nq ]; do sleep 2; done",
+        "curl -sS -f -H 'Accept: application/n-quads' " +
+          "http://sparql/sparql -o /dump.nq",
       ])
       .file("/dump.nq")
   }
 
-  @func()
+  @func({ cache: "never" })
   async temporalWithUi(source: Directory): Promise<Service> {
-    const temporal = await this.temporal(source)
+    const runId = `run-${Date.now().toString(36)}`
+    const temporal = await this.temporal(source, runId)
     const sparql = this.sparqlService(source)
     const tsWorker = await this.worker(source, temporal, sparql)
-    const dotnetWorker = await this.dotnetWorker(source, temporal)
+    const dotnetWorker = await this.dotnetWorker(source, temporal, sparql)
     await sparql.id()
 
+    // Run the client. It uses workflow.execute, so it blocks until both
+    // workflows complete — the workers must be bound here (not only to the
+    // UI container) so they pick up the tasks while the client waits.
     await dag
       .container()
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
+      .withServiceBinding("ts-worker", tsWorker)
+      .withServiceBinding("dotnet-worker", dotnetWorker)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withDirectory("/app", source.directory("typescript"))
       .withWorkdir("/app")

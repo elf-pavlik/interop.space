@@ -45,8 +45,9 @@ async function sparqlPeople(): Promise<Person[]> {
   const { store, engine } = await ensureRdf()
   const stream = await engine.queryBindings(
     `PREFIX as: <${AS}>
-     SELECT ?id ?name WHERE {
+     SELECT ?id ?name ?avatar WHERE {
        ?id as:name ?name .
+       OPTIONAL { ?id as:icon / as:url ?avatar }
      }`,
     { sources: [store] },
   )
@@ -56,10 +57,11 @@ async function sparqlPeople(): Promise<Person[]> {
     const name = b.get('name')?.value
     if (id && name) {
       const shortId = id.replace(/^.*[/#]/, '')
+      const avatar = b.get('avatar')?.value
       people.push({
         id: shortId,
         name,
-        avatarUrl: `https://robohash.org/${shortId}?set=set4&size=128x128`,
+        avatarUrl: avatar ?? `https://robohash.org/${shortId}?set=set4&size=128x128`,
       })
     }
   }
@@ -173,9 +175,10 @@ async function loadProject(id: string) {
     if (memberIds.length) {
       const mStream = await engine.queryBindings(
         `PREFIX as: <${AS}>
-         SELECT ?id ?name WHERE {
+         SELECT ?id ?name ?avatar WHERE {
            VALUES ?id { ${memberIds.map((m) => `<urn:person:${m}>`).join(' ')} }
            ?id as:name ?name .
+           OPTIONAL { ?id as:icon / as:url ?avatar }
          }`,
         { sources: [store] },
       )
@@ -184,11 +187,12 @@ async function loadProject(id: string) {
         const pid = b.get('id')?.value?.replace(/^.*[/#]/, '')
         const pname = b.get('name')?.value
         if (pid && pname) {
-          members.push({
-            id: pid,
-            name: pname,
-            avatarUrl: `https://robohash.org/${pid}?set=set4&size=128x128`,
-          })
+          const avatar = b.get('avatar')?.value
+      members.push({
+        id: pid,
+        name: pname,
+        avatarUrl: avatar ?? `https://robohash.org/${pid}?set=set4&size=128x128`,
+      })
         }
       }
       state.people = { status: 'ready', data: members }

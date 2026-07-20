@@ -7,6 +7,12 @@
     "github:dagger/nix#packages.x86_64-darwin.dagger": {
       "platforms": ["x86_64-darwin"]
     },
+    "github:dagger/nix#packages.aarch64-linux.dagger": {
+      "platforms": ["aarch64-linux"]
+    },
+    "github:dagger/nix#packages.x86_64-linux.dagger": {
+      "platforms": ["x86_64-linux"]
+    },
     "grpcurl": "latest",
     "bun": "latest",
     "xh": "latest",
@@ -14,7 +20,7 @@
     "dotnet-sdk": "latest"
   },
   "env": {
-    "_EXPERIMENTAL_DAGGER_RUNNER_HOST": "docker-container://dagger-engine-v0.21.7"
+    "_EXPERIMENTAL_DAGGER_RUNNER_HOST": "docker-container://dagger-engine-v0.21.9"
   },
   "shell": {
     "init_hook": ["echo 'Welcome to devbox!' > /dev/null"],
