@@ -2,6 +2,7 @@ node_modules
 .vscode/
 .prettierrc
 tmp/dataset.nq
+*.nq
 
 # Generated code from JSON Schema (run `devbox run generate`)
 typescript/src/gen/

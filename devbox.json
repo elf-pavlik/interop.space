@@ -20,6 +20,7 @@
     "init_hook": ["echo 'Welcome to devbox!' > /dev/null"],
     "scripts": {
       "up": "dagger call temporal-with-ui --source=. up --ports=8080:8080",
+      "dump": "dagger call export-dump --source=. -o ./ui/public/dump.nq",
       "generate": "bun gen.ts",
       "build": "devbox run generate && dotnet build dotnet/Worker/Worker.csproj",
       "test": ["echo \"Error: no test specified\" && exit 1"]

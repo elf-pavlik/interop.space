@@ -1,4 +1,4 @@
-import { dag, object, func, Service, Directory } from "@dagger.io/dagger"
+import { dag, object, func, Service, Directory, File } from "@dagger.io/dagger"
 
 const POSTGRESQL_VERSION = "16"
 const TEMPORAL_VERSION = "1.31.0"
@@ -167,6 +167,47 @@ export class DcentQuest {
       ])
       .withEntrypoint(["dotnet", "/app/Worker.dll"])
       .asService({ useEntrypoint: true })
+  }
+
+  @func()
+  async exportDump(source: Directory): Promise<File> {
+    const temporal = await this.temporal(source)
+    const sparql = this.sparqlService(source)
+    const tsWorker = await this.worker(source, temporal, sparql)
+    const dotnetWorker = await this.dotnetWorker(source, temporal)
+    await sparql.id()
+
+    // Run the client to start workflows
+    await dag
+      .container()
+      .from("oven/bun:1.3")
+      .withServiceBinding("temporal", temporal)
+      .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
+      .withDirectory("/app", source.directory("typescript"))
+      .withWorkdir("/app")
+      .withExec(["bun", "install"])
+      .withExec(["bun", "run", "src/client.ts"])
+      .sync()
+
+    // Dump data from the Oxigraph SPARQL endpoint.
+    // Bind workers to this container so they actually start processing
+    // tasks (otherwise they remain idle as unbound services).
+    // Poll until we get a non-empty response (workflows may still be seeding
+    // data when the client returns, so we keep trying until data appears).
+    return dag
+      .container()
+      .from("alpine:latest")
+      .withServiceBinding("sparql", sparql)
+      .withServiceBinding("ts-worker", tsWorker)
+      .withServiceBinding("dotnet-worker", dotnetWorker)
+      .withExec(["apk", "add", "--no-cache", "curl"])
+      .withExec([
+        "sh", "-c",
+        "while ! curl -sS -f -H 'Accept: application/n-quads' " +
+          "http://sparql/sparql -o /dump.nq 2>/dev/null " +
+          "|| [ ! -s /dump.nq ]; do sleep 2; done",
+      ])
+      .file("/dump.nq")
   }
 
   @func()
