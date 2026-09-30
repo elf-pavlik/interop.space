@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { Worker, NativeConnection } from '@temporalio/worker'
 import * as activities from './activities'
 import * as fediverseActivities from './protocols/fediverse/activities'
+import * as catalogActivities from './software-dependencies/activities'
 
 async function connectWithRetry(address: string) {
   while (true) {
@@ -21,7 +22,7 @@ async function run() {
   const connection = await connectWithRetry(address)
 
   try {
-    const worker = await Worker.create({
+    const greetingWorker = await Worker.create({
       connection,
       namespace: 'default',
       taskQueue: 'greeting',
@@ -29,7 +30,15 @@ async function run() {
       activities,
     })
 
-    await worker.run()
+    const catalogWorker = await Worker.create({
+      connection,
+      namespace: 'default',
+      taskQueue: 'catalog',
+      workflowsPath: new URL('./software-dependencies/workflows.ts', import.meta.url).pathname,
+      activities: catalogActivities,
+    })
+
+    await Promise.all([greetingWorker.run(), catalogWorker.run()])
   } finally {
     await connection.close()
   }
