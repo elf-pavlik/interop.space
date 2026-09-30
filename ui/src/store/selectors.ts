@@ -1,9 +1,10 @@
 import { appState } from './app'
-import type { Person } from '../data/people'
-import type { Project } from '../data/projects'
+import type { Person } from '../worker/protocol'
+import type { Project } from '../worker/protocol'
 
 export const peopleSlice = () => appState.people
 export const projectsSlice = () => appState.projects
+export const softwareSlice = () => appState.software
 
 export const projectById = (id: string): Project | undefined =>
   appState.projects.data.find((p) => p.id === id)

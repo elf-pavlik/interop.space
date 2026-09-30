@@ -9,6 +9,7 @@ const worker = new StateWorker()
 const [appState, appActor] = createActorStore<AppState, Command>(worker, {
   people: { status: 'idle', data: [] },
   projects: { status: 'idle', data: [] },
+  software: { status: 'idle', data: [] },
 })
 
 export { appState, appActor }

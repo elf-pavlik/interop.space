@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js'
 import { Avatar } from './ui/avatar'
-import type { Person } from '../data/people'
+import type { Person } from '../worker/protocol'
 
 export const PersonCard: Component<{ person: Person }> = (props) => {
   return (
@@ -9,7 +9,7 @@ export const PersonCard: Component<{ person: Person }> = (props) => {
       <div>
         <p class="font-semibold">{props.person.name}</p>
         <p class="text-sm text-slate-500 dark:text-slate-400">
-          {props.person.id}
+          {props.person.handle ?? props.person.id}
         </p>
       </div>
     </li>
