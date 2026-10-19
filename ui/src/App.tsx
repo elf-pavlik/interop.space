@@ -6,6 +6,7 @@ import People from './routes/People'
 import Projects from './routes/Projects'
 import ProjectDetail from './routes/ProjectDetail'
 import Software from './routes/Software'
+import Groups from './routes/Groups'
 import { ThemeToggle } from './components/ThemeToggle'
 
 export const routes: RouteDefinition[] = [
@@ -14,6 +15,7 @@ export const routes: RouteDefinition[] = [
   { path: '/projects', component: Projects },
   { path: '/projects/:id', component: ProjectDetail },
   { path: '/software', component: Software },
+  { path: '/groups', component: Groups },
 ]
 
 const navLink =
@@ -35,6 +37,9 @@ const App: ParentComponent = (props) => {
           </A>
           <A href="/projects" class={navLink} activeClass="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
             Projects
+          </A>
+          <A href="/groups" class={navLink} activeClass="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
+            Groups
           </A>
           <A href="/software" class={navLink} activeClass="bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white">
             Software

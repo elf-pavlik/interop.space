@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    // ESNext.Collection for Set.prototype.intersection (state.worker.ts);
+    // target stays ES2022 because Vite owns the browser build target.
+    "lib": ["ES2024", "ESNext.Collection", "DOM", "DOM.Iterable"],
     "module": "ES2022",
     "moduleResolution": "bundler",
     "jsx": "preserve",

@@ -5,6 +5,7 @@ import type { Project } from '../worker/protocol'
 export const peopleSlice = () => appState.people
 export const projectsSlice = () => appState.projects
 export const softwareSlice = () => appState.software
+export const w3cGroupsSlice = () => appState.w3cGroups
 
 export const projectById = (id: string): Project | undefined =>
   appState.projects.data.find((p) => p.id === id)
