@@ -6,8 +6,11 @@
 import { Glob } from 'bun'
 import { dirname, join, basename, relative } from 'node:path'
 import { mkdir } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
-const ROOT = new URL('./', import.meta.url).pathname
+// fileURLToPath, not URL.pathname: pathname stays percent-encoded, so a
+// checkout under e.g. "Application Support" resolves to "Application%20Support".
+const ROOT = fileURLToPath(new URL('./', import.meta.url))
 const SCHEMA_ROOT = join(ROOT, 'schema')
 const BANNER = '// Code generated from JSON Schema. DO NOT EDIT.\n\n'
 
