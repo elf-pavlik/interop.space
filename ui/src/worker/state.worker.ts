@@ -1,8 +1,7 @@
 /// <reference lib="webworker" />
 declare const self: DedicatedWorkerGlobalScope
 
-import { Store, Parser } from 'n3'
-import { QueryEngine } from '@comunica/query-sparql-rdfjs'
+import { SparqlEndpointFetcher, type IBindings } from 'fetch-sparql-endpoint'
 import type {
   AppState,
   Command,
@@ -29,29 +28,47 @@ const state: AppState = {
 const emit = (u: SliceUpdate) => self.postMessage(u)
 
 // ---------------------------------------------------------------------------
-// Lazy-loaded RDF store + query engine
+// SPARQL endpoint
 // ---------------------------------------------------------------------------
-let _store: Store | null = null
-let _engine: QueryEngine | null = null
+// The catalog is served by Apache Fuseki, so the UI queries it directly
+// instead of downloading the (previously public/dump.nq) snapshot. Query over
+// HTTPS: the http:// URL answers with a 302, and following that redirect drops
+// a POSTed query body.
+const SPARQL_ENDPOINT =
+  'https://fuseki-elf-pavlik-dev.apps.rm1.0a51.p1.openshiftapps.com/ds'
 
-async function ensureRdf(): Promise<{ store: Store; engine: QueryEngine }> {
-  if (_store && _engine) return { store: _store, engine: _engine }
-  const res = await fetch('/dump.nq')
-  const text = await res.text()
-  const store = new Store()
-  const parser = new Parser()
-  parser.parse(text, (_err, quad) => {
-    if (quad) store.addQuad(quad)
+// POST keeps long queries out of the URL. Fuseki replies with SPARQL JSON.
+const fetcher = new SparqlEndpointFetcher({ method: 'POST' })
+
+type BindingsStream = Awaited<
+  ReturnType<SparqlEndpointFetcher['fetchBindings']>
+>
+
+// fetch-sparql-endpoint hands back plain objects keyed by variable name, not
+// Comunica's Bindings with `.get()` — see
+// https://github.com/rubensworks/fetch-sparql-endpoint.js/issues/92.
+const value = (binding: IBindings, variable: string) =>
+  binding[variable]?.value
+
+// Drain a result stream into an array; the handlers below then process rows
+// synchronously (the fetcher returns a Node-style readable stream).
+function collectBindings(stream: BindingsStream): Promise<IBindings[]> {
+  return new Promise((resolve, reject) => {
+    const rows: IBindings[] = []
+    stream.on('data', (binding: IBindings) => rows.push(binding))
+    stream.on('end', () => resolve(rows))
+    stream.on('error', reject)
   })
-  _store = store
-  _engine = new QueryEngine()
-  return { store, engine: _engine }
+}
+
+async function queryBindings(query: string): Promise<IBindings[]> {
+  return collectBindings(await fetcher.fetchBindings(SPARQL_ENDPOINT, query))
 }
 
 // ---------------------------------------------------------------------------
 // SPARQL helpers
 // ---------------------------------------------------------------------------
-// The catalog dump uses the local `ex:` namespace (http://example.org#).
+// The catalog uses the local `ex:` namespace (http://example.org#).
 const EX = 'http://example.org#'
 const TAX = 'https://solidproject.solidcommunity.net/catalog/taxonomy#'
 
@@ -72,27 +89,24 @@ const toPerson = (id: string, name: string, handle?: string): Person => ({
 })
 
 async function sparqlPeople(): Promise<Person[]> {
-  const { store, engine } = await ensureRdf()
-  const stream = await engine.queryBindings(
+  const rows = await queryBindings(
     `PREFIX ex: <${EX}>
      SELECT ?id ?name ?handle WHERE {
        ?id a ex:Person ; ex:name ?name .
        OPTIONAL { ?id ex:forumHandle ?handle }
      }`,
-    { sources: [store] },
   )
   const people: Person[] = []
-  for await (const b of stream) {
-    const id = b.get('id')?.value
-    const name = b.get('name')?.value
-    if (id && name) people.push(toPerson(id, name, b.get('handle')?.value))
+  for (const b of rows) {
+    const id = value(b, 'id')
+    const name = value(b, 'name')
+    if (id && name) people.push(toPerson(id, name, value(b, 'handle')))
   }
   return people
 }
 
 async function sparqlProjects(): Promise<Project[]> {
-  const { store, engine } = await ensureRdf()
-  const stream = await engine.queryBindings(
+  const rows = await queryBindings(
     `PREFIX ex: <${EX}>
      PREFIX tax: <${TAX}>
      SELECT ?id ?name ?description ?member WHERE {
@@ -101,24 +115,23 @@ async function sparqlProjects(): Promise<Project[]> {
        OPTIONAL { ?id ex:description ?description }
        OPTIONAL { ?id ex:member ?member }
      }`,
-    { sources: [store] },
   )
   // Gather members per project
   const map = new Map<string, Project>()
-  for await (const b of stream) {
-    const id = b.get('id')?.value
+  for (const b of rows) {
+    const id = value(b, 'id')
     if (!id) continue
     const shortId = short(id)
     if (!map.has(shortId)) {
       map.set(shortId, {
         id: shortId,
         uri: id,
-        name: b.get('name')?.value ?? '',
-        description: b.get('description')?.value ?? '',
+        name: value(b, 'name') ?? '',
+        description: value(b, 'description') ?? '',
         memberIds: [],
       })
     }
-    const member = b.get('member')?.value
+    const member = value(b, 'member')
     if (member) {
       const p = map.get(shortId)!
       const shortMember = short(member)
@@ -129,33 +142,31 @@ async function sparqlProjects(): Promise<Project[]> {
 }
 
 async function sparqlSoftware(): Promise<Software[]> {
-  const { store, engine } = await ensureRdf()
-  // Software package names
+  // Software package names and dependency edges (resolved to names below).
+  const [nameRows, edgeRows] = await Promise.all([
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       SELECT ?s ?name WHERE {
+         ?s a ex:Software ; ex:name ?name
+       }`,
+    ),
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       SELECT ?s ?dep WHERE {
+         ?s ex:hasDependencyOn ?dep
+       }`,
+    ),
+  ])
   const names = new Map<string, string>()
-  const nameStream = await engine.queryBindings(
-    `PREFIX ex: <${EX}>
-     SELECT ?s ?name WHERE {
-       ?s a ex:Software ; ex:name ?name
-     }`,
-    { sources: [store] },
-  )
-  for await (const b of nameStream) {
-    const s = b.get('s')?.value
-    const n = b.get('name')?.value
+  for (const b of nameRows) {
+    const s = value(b, 's')
+    const n = value(b, 'name')
     if (s && n) names.set(s, n)
   }
-  // Dependency edges, resolved to names below
   const edges = new Map<string, Set<string>>()
-  const edgeStream = await engine.queryBindings(
-    `PREFIX ex: <${EX}>
-     SELECT ?s ?dep WHERE {
-       ?s ex:hasDependencyOn ?dep
-     }`,
-    { sources: [store] },
-  )
-  for await (const b of edgeStream) {
-    const s = b.get('s')?.value
-    const dep = b.get('dep')?.value
+  for (const b of edgeRows) {
+    const s = value(b, 's')
+    const dep = value(b, 'dep')
     if (s && dep) {
       if (!edges.has(s)) edges.set(s, new Set())
       edges.get(s)!.add(dep)
@@ -191,45 +202,44 @@ const toW3cParticipant = (
 })
 
 async function sparqlW3cGroups(): Promise<W3cGroup[]> {
-  const { store, engine } = await ensureRdf()
   const groups = new Map<string, W3cGroup>()
-  const groupStream = await engine.queryBindings(
-    `PREFIX ex: <${EX}>
-     SELECT ?uri ?name ?siloId WHERE {
-       ?uri a ex:Organization ; ex:name ?name ; ex:siloId ?siloId .
-       FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
-     }`,
-    { sources: [store] },
-  )
-  for await (const b of groupStream) {
-    const uri = b.get('uri')?.value
-    const name = b.get('name')?.value
-    const siloId = b.get('siloId')?.value
+  const [groupRows, memberRows] = await Promise.all([
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       SELECT ?uri ?name ?siloId WHERE {
+         ?uri a ex:Organization ; ex:name ?name ; ex:siloId ?siloId .
+         FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
+       }`,
+    ),
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       SELECT ?group ?person ?name ?logo WHERE {
+         ?group a ex:Organization ; ex:siloId ?siloId ; ex:member ?person .
+         FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
+         ?person a ex:Person ; ex:name ?name .
+         OPTIONAL { ?person ex:logo ?logo }
+       }`,
+    ),
+  ])
+  for (const b of groupRows) {
+    const uri = value(b, 'uri')
+    const name = value(b, 'name')
+    const siloId = value(b, 'siloId')
     if (!uri || !name || !siloId) continue
     const id = Number(siloId.slice(W3C_SILO_PREFIX.length))
     if (!Number.isInteger(id)) continue
     groups.set(uri, { id, uri, name, participants: [] })
   }
 
-  const memberStream = await engine.queryBindings(
-    `PREFIX ex: <${EX}>
-     SELECT ?group ?person ?name ?logo WHERE {
-       ?group a ex:Organization ; ex:siloId ?siloId ; ex:member ?person .
-       FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
-       ?person a ex:Person ; ex:name ?name .
-       OPTIONAL { ?person ex:logo ?logo }
-     }`,
-    { sources: [store] },
-  )
-  for await (const b of memberStream) {
-    const groupUri = b.get('group')?.value
-    const person = b.get('person')?.value
-    const name = b.get('name')?.value
+  for (const b of memberRows) {
+    const groupUri = value(b, 'group')
+    const person = value(b, 'person')
+    const name = value(b, 'name')
     const group = groupUri ? groups.get(groupUri) : undefined
     if (!group || !person || !name) continue
     // A person with several logos binds more than once; keep the first row.
     if (group.participants.some((p) => p.uri === person)) continue
-    group.participants.push(toW3cParticipant(person, name, b.get('logo')?.value))
+    group.participants.push(toW3cParticipant(person, name, value(b, 'logo')))
   }
 
   for (const group of groups.values()) {
@@ -350,8 +360,6 @@ async function loadProject(id: string) {
   state.projects = { status: 'loading', data: state.projects.data }
   emit({ key: 'projects', value: state.projects })
   try {
-    const { store, engine } = await ensureRdf()
-
     // Prefer an already-loaded record: exact short-id match on the current
     // slice (keeps the full list intact when navigating from /projects).
     const known = state.projects.data.find(
@@ -364,7 +372,7 @@ async function loadProject(id: string) {
     if (!project) {
       // Resolve the catalog URI from the short id: urn:uuid:<id>, https://<id>,
       // or any URI ending in /<id> or #<id>.
-      const stream = await engine.queryBindings(
+      const rows = await queryBindings(
         `PREFIX ex: <${EX}>
          SELECT ?id ?name ?description WHERE {
            ?id a ex:Organization .
@@ -378,16 +386,15 @@ async function loadProject(id: string) {
            OPTIONAL { ?id ex:description ?description }
          }
          LIMIT 1`,
-        { sources: [store] },
       )
-      for await (const b of stream) {
-        const uri = b.get('id')?.value
+      for (const b of rows) {
+        const uri = value(b, 'id')
         if (!uri) continue
         project = {
           id: short(uri),
           uri,
-          name: b.get('name')?.value ?? '',
-          description: b.get('description')?.value ?? '',
+          name: value(b, 'name') ?? '',
+          description: value(b, 'description') ?? '',
           memberIds: [],
         }
         break
@@ -397,13 +404,12 @@ async function loadProject(id: string) {
     if (project) {
       const memberIds: string[] = []
       const memberUris: string[] = []
-      const mStream = await engine.queryBindings(
+      const memberRows = await queryBindings(
         `PREFIX ex: <${EX}>
          SELECT ?member WHERE { <${project.uri}> ex:member ?member }`,
-        { sources: [store] },
       )
-      for await (const b of mStream) {
-        const member = b.get('member')?.value
+      for (const b of memberRows) {
+        const member = value(b, 'member')
         if (member) {
           const shortMember = short(member)
           if (!memberIds.includes(shortMember)) {
@@ -427,21 +433,19 @@ async function loadProject(id: string) {
       // Load associated member people
       if (memberUris.length) {
         const values = memberUris.map((uri) => `<${uri}>`).join(' ')
-        const mStream2 = await engine.queryBindings(
+        const peopleRows = await queryBindings(
           `PREFIX ex: <${EX}>
            SELECT ?id ?name ?handle WHERE {
              VALUES ?id { ${values} }
              ?id a ex:Person ; ex:name ?name .
              OPTIONAL { ?id ex:forumHandle ?handle }
            }`,
-          { sources: [store] },
         )
         const members: Person[] = []
-        for await (const b of mStream2) {
-          const pid = b.get('id')?.value
-          const pname = b.get('name')?.value
-          if (pid && pname)
-            members.push(toPerson(pid, pname, b.get('handle')?.value))
+        for (const b of peopleRows) {
+          const pid = value(b, 'id')
+          const pname = value(b, 'name')
+          if (pid && pname) members.push(toPerson(pid, pname, value(b, 'handle')))
         }
         state.people = { status: 'ready', data: members }
         emit({ key: 'people', value: state.people })

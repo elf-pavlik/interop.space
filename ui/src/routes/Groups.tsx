@@ -90,7 +90,7 @@ const Groups: Component = () => {
         <h1 class="text-3xl font-bold tracking-tight">W3C Groups</h1>
         <p class="text-slate-600 dark:text-slate-400">
           Select the groups you want to compare. Participants are synced from
-          the W3C API into the catalog dump; with more than one group selected,
+          the W3C API into the catalog; with more than one group selected,
           the list shows who they have in common.
         </p>
       </div>
@@ -122,7 +122,7 @@ const Groups: Component = () => {
 
         <Show when={w3cGroupsSlice().status === 'loading'}>
           <p class="text-slate-500 dark:text-slate-400">
-            Loading groups and participants from the catalog dump…
+            Loading groups and participants from the catalog…
           </p>
         </Show>
 
@@ -136,7 +136,7 @@ const Groups: Component = () => {
           {(group) => (
             <ParticipantList
               title={`Participants of ${group().name}`}
-              note={`${group().participants.length} ${group().participants.length === 1 ? 'participant' : 'participants'} in the catalog dump. Select another group to see who they have in common.`}
+              note={`${group().participants.length} ${group().participants.length === 1 ? 'participant' : 'participants'} in the catalog. Select another group to see who they have in common.`}
               people={group().participants}
             />
           )}
