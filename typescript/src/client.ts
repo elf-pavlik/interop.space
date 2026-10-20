@@ -18,13 +18,21 @@ async function run() {
   //     workflowId: `fediverse-${Date.now()}`,
   //   })
 
-  const catalog = await client.workflow.execute('catalogDependencyWorkflow', {
-    taskQueue: 'catalog',
-    workflowId: `catalog-deps-${Date.now()}`,
+  //   const catalog = await client.workflow.execute('catalogDependencyWorkflow', {
+  //     taskQueue: 'catalog',
+  //     workflowId: `catalog-deps-${Date.now()}`,
+  //     workflowExecutionTimeout: '15 minutes',
+  //   })
+
+  // For now the dump is built from the W3C API workflow (it seeds the catalog
+  // and adds the participants of every W3C group the catalog lists).
+  const w3c = await client.workflow.execute('w3cApiWorkflow', {
+    taskQueue: 'w3c',
+    workflowId: `w3c-api-${Date.now()}`,
     workflowExecutionTimeout: '15 minutes',
   })
 
-  console.log('catalog dependency workflow result:', JSON.stringify(catalog))
+  console.log('w3c api workflow result:', JSON.stringify(w3c))
 }
 
 run().catch((err) => {

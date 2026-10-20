@@ -3,7 +3,6 @@ declare const self: DedicatedWorkerGlobalScope
 
 import { Store, Parser } from 'n3'
 import { QueryEngine } from '@comunica/query-sparql-rdfjs'
-import w3capi, { type W3cApiUser } from 'node-w3capi/lib/w3capi.js'
 import type {
   AppState,
   Command,
@@ -175,57 +174,26 @@ async function sparqlSoftware(): Promise<Software[]> {
 // ---------------------------------------------------------------------------
 // W3C groups
 // ---------------------------------------------------------------------------
-// The catalog records the W3C API group id as ex:siloId "w3c:<group id>", so
-// every group organization in the dump becomes selectable without hard-coding
-// names or ids.
+// The W3C API workflow (typescript/src/w3c-api) writes the groups and their
+// participants into the catalog dump, so this worker only queries it. Groups
+// carry the W3C group id as ex:siloId "w3c:<group id>", participants are
+// ex:Person records linked from their group with ex:member.
 const W3C_SILO_PREFIX = 'w3c:'
 
-const w3cAvatar = (id: string) =>
-  `https://www.w3.org/thumbnails/100/avatar-images/${id}.webp?x-version=2`
-
-const toW3cParticipant = (user: W3cApiUser): W3cParticipant => {
-  const id = user.href.replace(/^.*\//, '')
-  return {
-    id,
-    name: user.title,
-    avatarUrl: w3cAvatar(id),
-    former: user.former,
-  }
-}
-
-// Participant lists are immutable for the worker's lifetime: toggling a group
-// off and on again must not hit the API a second time.
-const participantCache = new Map<number, W3cParticipant[]>()
-const participantRequests = new Map<number, Promise<W3cParticipant[]>>()
-
-function participantsFor(groupId: number): Promise<W3cParticipant[]> {
-  const cached = participantCache.get(groupId)
-  if (cached) return Promise.resolve(cached)
-  const inflight = participantRequests.get(groupId)
-  if (inflight) return inflight
-
-  const request = w3capi
-    .group(groupId)
-    .users()
-    .fetch()
-    .then((users) => {
-      // Defensive: the API could list the same user more than once.
-      const unique = new Map(users.map((u) => [u.href, toW3cParticipant(u)]))
-      const participants = [...unique.values()].sort((a, b) =>
-        a.name.localeCompare(b.name),
-      )
-      participantCache.set(groupId, participants)
-      return participants
-    })
-    .finally(() => participantRequests.delete(groupId))
-
-  participantRequests.set(groupId, request)
-  return request
-}
+const toW3cParticipant = (
+  uri: string,
+  name: string,
+  logo?: string,
+): W3cParticipant => ({
+  uri,
+  name,
+  avatarUrl: logo ?? robohash(short(uri)),
+})
 
 async function sparqlW3cGroups(): Promise<W3cGroup[]> {
   const { store, engine } = await ensureRdf()
-  const stream = await engine.queryBindings(
+  const groups = new Map<string, W3cGroup>()
+  const groupStream = await engine.queryBindings(
     `PREFIX ex: <${EX}>
      SELECT ?uri ?name ?siloId WHERE {
        ?uri a ex:Organization ; ex:name ?name ; ex:siloId ?siloId .
@@ -233,17 +201,41 @@ async function sparqlW3cGroups(): Promise<W3cGroup[]> {
      }`,
     { sources: [store] },
   )
-  const groups: W3cGroup[] = []
-  for await (const b of stream) {
+  for await (const b of groupStream) {
     const uri = b.get('uri')?.value
     const name = b.get('name')?.value
     const siloId = b.get('siloId')?.value
     if (!uri || !name || !siloId) continue
     const id = Number(siloId.slice(W3C_SILO_PREFIX.length))
     if (!Number.isInteger(id)) continue
-    groups.push({ id, uri, name, participants: [] })
+    groups.set(uri, { id, uri, name, participants: [] })
   }
-  return groups.sort((a, b) => a.name.localeCompare(b.name))
+
+  const memberStream = await engine.queryBindings(
+    `PREFIX ex: <${EX}>
+     SELECT ?group ?person ?name ?logo WHERE {
+       ?group a ex:Organization ; ex:siloId ?siloId ; ex:member ?person .
+       FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
+       ?person a ex:Person ; ex:name ?name .
+       OPTIONAL { ?person ex:logo ?logo }
+     }`,
+    { sources: [store] },
+  )
+  for await (const b of memberStream) {
+    const groupUri = b.get('group')?.value
+    const person = b.get('person')?.value
+    const name = b.get('name')?.value
+    const group = groupUri ? groups.get(groupUri) : undefined
+    if (!group || !person || !name) continue
+    // A person with several logos binds more than once; keep the first row.
+    if (group.participants.some((p) => p.uri === person)) continue
+    group.participants.push(toW3cParticipant(person, name, b.get('logo')?.value))
+  }
+
+  for (const group of groups.values()) {
+    group.participants.sort((a, b) => a.name.localeCompare(b.name))
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // Intersection of every selected group's participant list. With fewer than two
@@ -254,21 +246,13 @@ function commonParticipants(
 ): W3cParticipant[] {
   const chosen = groups.filter((g) => selected.includes(g.id))
   if (chosen.length < 2) return []
-  const commonIds = chosen
-    .map((g) => new Set(g.participants.map((p) => p.id)))
+  const commonUris = chosen
+    .map((g) => new Set(g.participants.map((p) => p.uri)))
     .reduce((a, b) => a.intersection(b))
   return chosen[0].participants
-    .filter((p) => commonIds.has(p.id))
+    .filter((p) => commonUris.has(p.uri))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
-
-// Commands are not serialized: a toggle starts its participant loads and
-// returns to the mailbox, so a later command can finish before an earlier one.
-// Each command takes a token here and only the flow that is still the latest
-// may write state, otherwise an older flow would publish its stale selection.
-// Stale flows are not wasted work: they fill the participant cache the newest
-// flow is awaiting.
-let w3cSelectionVersion = 0
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -322,33 +306,18 @@ async function loadSoftware() {
 
 async function loadW3cGroups() {
   if (state.w3cGroups.status === 'loading') return
-  const version = ++w3cSelectionVersion
   state.w3cGroups = { status: 'loading', data: state.w3cGroups.data }
   emit({ key: 'w3cGroups', value: state.w3cGroups })
   try {
-    const found = await sparqlW3cGroups()
-    // Start with every group in the catalog selected, so the intersection is
+    const groups = await sparqlW3cGroups()
+    // Start with every group in the dump selected, so the intersection is
     // visible as soon as the page opens; the checkboxes can undo that.
-    const selected = found.map((g) => g.id)
-    state.w3cGroups = {
-      status: 'loading',
-      data: { groups: found, selected, common: [] },
-    }
-    emit({ key: 'w3cGroups', value: state.w3cGroups })
-
-    const groups = await Promise.all(
-      found.map(async (g) => ({
-        ...g,
-        participants: await participantsFor(g.id),
-      })),
-    )
-    if (version !== w3cSelectionVersion) return
+    const selected = groups.map((g) => g.id)
     state.w3cGroups = {
       status: 'ready',
       data: { groups, selected, common: commonParticipants(groups, selected) },
     }
   } catch (e) {
-    if (version !== w3cSelectionVersion) return
     state.w3cGroups = {
       status: 'error',
       data: state.w3cGroups.data,
@@ -358,51 +327,21 @@ async function loadW3cGroups() {
   emit({ key: 'w3cGroups', value: state.w3cGroups })
 }
 
-async function toggleW3cGroup(id: number) {
+// The participants are already in the dump, so selecting a group only
+// recomputes the intersection — no async work, no stale-write races.
+function toggleW3cGroup(id: number) {
   const data = state.w3cGroups.data
   if (!data.groups.some((g) => g.id === id)) return
-  const version = ++w3cSelectionVersion
   const selected = data.selected.includes(id)
     ? data.selected.filter((x) => x !== id)
     : [...data.selected, id]
-
   state.w3cGroups = {
-    status: 'loading',
+    status: 'ready',
     data: {
       ...data,
       selected,
-      common: commonParticipants(
-        data.groups.map((g) => ({
-          ...g,
-          participants: participantCache.get(g.id) ?? g.participants,
-        })),
-        selected,
-      ),
+      common: commonParticipants(data.groups, selected),
     },
-  }
-  emit({ key: 'w3cGroups', value: state.w3cGroups })
-
-  try {
-    // Cached groups resolve immediately; only a group whose fetch failed (or
-    // was never selected) hits the API here.
-    const groups = await Promise.all(
-      data.groups.map(async (g) => ({
-        ...g,
-        participants: await participantsFor(g.id),
-      })),
-    )
-    if (version !== w3cSelectionVersion) return
-    state.w3cGroups = {
-      status: 'ready',
-      data: { groups, selected, common: commonParticipants(groups, selected) },
-    }
-  } catch (e) {
-    if (version !== w3cSelectionVersion) return
-    state.w3cGroups = {
-      status: 'error',
-      data: state.w3cGroups.data,
-      error: String(e),
-    }
   }
   emit({ key: 'w3cGroups', value: state.w3cGroups })
 }

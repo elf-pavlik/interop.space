@@ -24,10 +24,9 @@ export type Software = {
 }
 
 export type W3cParticipant = {
-  id: string // W3C API user id (tail of the user href)
+  uri: string // person URI in the catalog dump (ex:member target)
   name: string
   avatarUrl: string
-  former: boolean
 }
 
 export type W3cGroup = {

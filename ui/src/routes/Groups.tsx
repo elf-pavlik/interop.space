@@ -52,12 +52,7 @@ const ParticipantList: Component<{
           {(person) => (
             <li class="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <Avatar src={person.avatarUrl} name={person.name} />
-              <div>
-                <p class="font-semibold">{person.name}</p>
-                <p class="text-sm text-slate-500 dark:text-slate-400">
-                  {person.former ? 'Former participant' : 'W3C participant'}
-                </p>
-              </div>
+              <p class="font-semibold">{person.name}</p>
             </li>
           )}
         </For>
@@ -94,9 +89,9 @@ const Groups: Component = () => {
       <div class="space-y-1">
         <h1 class="text-3xl font-bold tracking-tight">W3C Groups</h1>
         <p class="text-slate-600 dark:text-slate-400">
-          Select the groups you want to compare. Participants come live from the
-          W3C API; with more than one group selected, the list shows who they
-          have in common.
+          Select the groups you want to compare. Participants are synced from
+          the W3C API into the catalog dump; with more than one group selected,
+          the list shows who they have in common.
         </p>
       </div>
 
@@ -127,7 +122,7 @@ const Groups: Component = () => {
 
         <Show when={w3cGroupsSlice().status === 'loading'}>
           <p class="text-slate-500 dark:text-slate-400">
-            Loading participants from the W3C API…
+            Loading groups and participants from the catalog dump…
           </p>
         </Show>
 
@@ -141,7 +136,7 @@ const Groups: Component = () => {
           {(group) => (
             <ParticipantList
               title={`Participants of ${group().name}`}
-              note={`${group().participants.length} ${group().participants.length === 1 ? 'participant' : 'participants'} from the W3C API. Select another group to see who they have in common.`}
+              note={`${group().participants.length} ${group().participants.length === 1 ? 'participant' : 'participants'} in the catalog dump. Select another group to see who they have in common.`}
               people={group().participants}
             />
           )}

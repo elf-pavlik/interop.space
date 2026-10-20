@@ -3,6 +3,7 @@ import { Worker, NativeConnection } from '@temporalio/worker'
 import * as activities from './activities'
 import * as fediverseActivities from './protocols/fediverse/activities'
 import * as catalogActivities from './software-dependencies/activities'
+import * as w3cActivities from './w3c-api/activities'
 
 async function connectWithRetry(address: string) {
   while (true) {
@@ -38,7 +39,15 @@ async function run() {
       activities: catalogActivities,
     })
 
-    await Promise.all([greetingWorker.run(), catalogWorker.run()])
+    const w3cWorker = await Worker.create({
+      connection,
+      namespace: 'default',
+      taskQueue: 'w3c',
+      workflowsPath: new URL('./w3c-api/workflows.ts', import.meta.url).pathname,
+      activities: w3cActivities,
+    })
+
+    await Promise.all([greetingWorker.run(), catalogWorker.run(), w3cWorker.run()])
   } finally {
     await connection.close()
   }

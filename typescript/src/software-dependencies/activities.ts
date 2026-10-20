@@ -37,7 +37,7 @@ function requireEnv(name: string): string {
  * SPARQL_ENDPOINT (http://sparql/sparql). Direct Oxigraph needs the
  * operation-specific path (/store, /update). The overrides let both work.
  */
-function endpointFor(op: 'store' | 'update' | 'query'): string {
+export function endpointFor(op: 'store' | 'update' | 'query'): string {
   return process.env[`SPARQL_${op.toUpperCase()}_ENDPOINT`] ?? requireEnv('SPARQL_ENDPOINT')
 }
 

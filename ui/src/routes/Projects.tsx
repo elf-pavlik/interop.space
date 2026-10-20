@@ -5,6 +5,10 @@ import { Avatar } from '../components/ui/avatar'
 import { appActor } from '../store/app'
 import { membersOf, peopleSlice, projectsSlice } from '../store/selectors'
 
+// W3C groups in the catalog have hundreds of participants; a card only has
+// room for a handful of avatars, the rest is summarized as "+N".
+const MAX_MEMBER_AVATARS = 8
+
 const Projects: Component = () => {
   onMount(() => {
     if (projectsSlice().status === 'idle')
@@ -33,42 +37,52 @@ const Projects: Component = () => {
         <Match when={projectsSlice().status === 'ready'}>
           <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <For each={projectsSlice().data}>
-              {(project) => (
-                <li>
-                  <A
-                    href={`/projects/${project.id}`}
-                    class="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
-                  >
-                    <div class="space-y-1">
-                      <p class="text-lg font-semibold">{project.name}</p>
-                      <p class="text-sm text-slate-500 dark:text-slate-400">
-                        {project.description}
-                      </p>
-                    </div>
-                    <Show
-                      when={membersOf(project.id).length > 0}
-                      fallback={
-                        <p class="text-xs text-slate-400">
-                          {project.memberIds.length} members
-                        </p>
-                      }
+              {(project) => {
+                const members = () => membersOf(project.id)
+                return (
+                  <li>
+                    <A
+                      href={`/projects/${project.id}`}
+                      class="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
                     >
-                      <div class="flex -space-x-3">
-                        <For each={membersOf(project.id)}>
-                          {(person) => (
-                            <div class="ring-2 ring-white dark:ring-slate-900 rounded-full">
-                              <Avatar
-                                src={person.avatarUrl}
-                                name={person.name}
-                              />
-                            </div>
-                          )}
-                        </For>
+                      <div class="space-y-1">
+                        <p class="text-lg font-semibold">{project.name}</p>
+                        <p class="text-sm text-slate-500 dark:text-slate-400">
+                          {project.description}
+                        </p>
                       </div>
-                    </Show>
-                  </A>
-                </li>
-              )}
+                      <Show
+                        when={members().length > 0}
+                        fallback={
+                          <p class="text-xs text-slate-400">
+                            {project.memberIds.length} members
+                          </p>
+                        }
+                      >
+                        <div class="flex items-center">
+                          <div class="flex -space-x-3">
+                            <For each={members().slice(0, MAX_MEMBER_AVATARS)}>
+                              {(person) => (
+                                <div class="ring-2 ring-white dark:ring-slate-900 rounded-full">
+                                  <Avatar
+                                    src={person.avatarUrl}
+                                    name={person.name}
+                                  />
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                          <Show when={members().length > MAX_MEMBER_AVATARS}>
+                            <span class="ml-3 text-xs text-slate-400">
+                              +{members().length - MAX_MEMBER_AVATARS}
+                            </span>
+                          </Show>
+                        </div>
+                      </Show>
+                    </A>
+                  </li>
+                )
+              }}
             </For>
           </ul>
         </Match>
