@@ -1,32 +1,60 @@
 import type { Component } from 'solid-js'
 import { For, Show, onMount } from 'solid-js'
-import { Avatar } from '../components/ui/avatar'
+import { A } from '@solidjs/router'
+import { ArrowRight, Pin } from 'lucide-solid'
+import { PersonCard } from '../components/PersonCard'
 import { appActor } from '../store/app'
+import { personFromParticipant } from '../lib/person'
 import { w3cGroupsSlice } from '../store/selectors'
 import type { W3cGroup, W3cParticipant } from '../worker/protocol'
 
+const iconButton =
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition'
+
+const idleIcon =
+  'text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+
+// The pin button toggles the group's participation in the comparison; the
+// arrow button opens the group's own page. The card itself is not clickable so
+// the two actions never fight over the same target.
 const GroupCard: Component<{ group: W3cGroup; selected: boolean }> = (
   props,
 ) => (
-  <label
-    class={`flex cursor-pointer items-start gap-3 rounded-xl border bg-white p-5 shadow-sm transition dark:bg-slate-900 ${props.selected ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 hover:shadow-md dark:border-slate-800'}`}
+  <div
+    class={`flex items-center gap-2 rounded-xl border bg-white p-4 shadow-sm transition dark:bg-slate-900 ${props.selected ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 hover:shadow-md dark:border-slate-800'}`}
   >
-    <input
-      type="checkbox"
-      class="mt-1 h-4 w-4 accent-indigo-600"
-      checked={props.selected}
-      onChange={() =>
+    <button
+      type="button"
+      aria-pressed={props.selected}
+      aria-label={
+        props.selected
+          ? `Unpin ${props.group.name}`
+          : `Pin ${props.group.name}`
+      }
+      title={props.selected ? 'Unpin group' : 'Pin group'}
+      onClick={() =>
         appActor.send({ type: 'toggleW3cGroup', id: props.group.id })
       }
-    />
-    <span class="space-y-1">
-      <span class="block font-semibold">{props.group.name}</span>
-      <span class="block text-sm text-slate-500 dark:text-slate-400">
-        W3C group {props.group.id} · {props.group.participants.length}
+      class={`${iconButton} ${props.selected ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400' : idleIcon}`}
+    >
+      <Pin size={18} fill={props.selected ? 'currentColor' : 'none'} />
+    </button>
+    <div class="min-w-0 flex-1 space-y-1">
+      <p class="truncate font-semibold">{props.group.name}</p>
+      <p class="text-sm text-slate-500 dark:text-slate-400">
+        {props.group.participants.length}
         {props.group.participants.length === 1 ? ' participant' : ' participants'}
-      </span>
-    </span>
-  </label>
+      </p>
+    </div>
+    <A
+      href={`/groups/${props.group.id}`}
+      aria-label={`Open ${props.group.name}`}
+      title={`Open ${props.group.name}`}
+      class={`${iconButton} ${idleIcon}`}
+    >
+      <ArrowRight size={18} />
+    </A>
+  </div>
 )
 
 const ParticipantList: Component<{
@@ -49,12 +77,7 @@ const ParticipantList: Component<{
     >
       <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <For each={props.people}>
-          {(person) => (
-            <li class="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-              <Avatar src={person.avatarUrl} name={person.name} />
-              <p class="font-semibold">{person.name}</p>
-            </li>
-          )}
+          {(person) => <PersonCard person={personFromParticipant(person)} />}
         </For>
       </ul>
     </Show>
@@ -89,9 +112,9 @@ const Groups: Component = () => {
       <div class="space-y-1">
         <h1 class="text-3xl font-bold tracking-tight">W3C Groups</h1>
         <p class="text-slate-600 dark:text-slate-400">
-          Select the groups you want to compare. Participants are synced from
-          the W3C API into the catalog; with more than one group selected,
-          the list shows who they have in common.
+          Pin the groups you want to compare. Participants are synced from the
+          W3C API into the catalog; with more than one group pinned, the list
+          shows who they have in common. Use the arrow to open a group's page.
         </p>
       </div>
 
@@ -128,7 +151,7 @@ const Groups: Component = () => {
 
         <Show when={selectedGroups().length === 0}>
           <p class="text-slate-500 dark:text-slate-400">
-            Select at least one group above.
+            Pin at least one group above.
           </p>
         </Show>
 
@@ -136,7 +159,7 @@ const Groups: Component = () => {
           {(group) => (
             <ParticipantList
               title={`Participants of ${group().name}`}
-              note={`${group().participants.length} ${group().participants.length === 1 ? 'participant' : 'participants'} in the catalog. Select another group to see who they have in common.`}
+              note={`${group().participants.length} ${group().participants.length === 1 ? 'participant' : 'participants'} in the catalog. Pin another group to see who they have in common.`}
               people={group().participants}
             />
           )}

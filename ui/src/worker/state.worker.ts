@@ -82,29 +82,70 @@ const short = (uri: string) =>
 const robohash = (seed: string) =>
   `https://robohash.org/${seed}?set=set4&size=128x128`
 
-const toPerson = (id: string, name: string, handle?: string): Person => ({
-  id: short(id),
-  uri: id,
+// Groups and people both use ex:siloId "w3c:<numeric id>" for the stable W3C
+// identifier; the catalog URI stays the opaque API one.
+const W3C_SILO_PREFIX = 'w3c:'
+
+const parseW3cId = (siloId: string | undefined): number | undefined => {
+  if (!siloId?.startsWith(W3C_SILO_PREFIX)) return undefined
+  const id = Number(siloId.slice(W3C_SILO_PREFIX.length))
+  return Number.isInteger(id) ? id : undefined
+}
+
+// ex:siloUsername carries the connected GitHub account as "github:<login>".
+const GITHUB_SILO_PREFIX = 'github:'
+
+const parseGithubUsername = (
+  siloUsername: string | undefined,
+): string | undefined => {
+  if (!siloUsername?.startsWith(GITHUB_SILO_PREFIX)) return undefined
+  return siloUsername.slice(GITHUB_SILO_PREFIX.length) || undefined
+}
+
+const toPerson = (
+  uri: string,
+  name: string,
+  // Everyone binds once per logo/siloId/siloUsername, so fold the rows.
+  fields: { handle?: string; logo?: string; github?: string } = {},
+): Person => ({
+  id: short(uri),
+  uri,
   name,
-  handle,
-  avatarUrl: robohash(short(id)),
+  handle: fields.handle,
+  github: fields.github,
+  avatarUrl: fields.logo ?? robohash(short(uri)),
 })
 
 async function sparqlPeople(): Promise<Person[]> {
   const rows = await queryBindings(
     `PREFIX ex: <${EX}>
-     SELECT ?id ?name ?handle WHERE {
+     SELECT ?id ?name ?handle ?logo ?siloUsername ?siloId WHERE {
        ?id a ex:Person ; ex:name ?name .
        OPTIONAL { ?id ex:forumHandle ?handle }
+       OPTIONAL { ?id ex:logo ?logo }
+       OPTIONAL { ?id ex:siloUsername ?siloUsername }
+       OPTIONAL { ?id ex:siloId ?siloId }
      }`,
   )
-  const people: Person[] = []
+  const people = new Map<string, Person>()
   for (const b of rows) {
-    const id = value(b, 'id')
+    const uri = value(b, 'id')
     const name = value(b, 'name')
-    if (id && name) people.push(toPerson(id, name, value(b, 'handle')))
+    if (!uri || !name) continue
+    let person = people.get(uri)
+    if (!person) {
+      person = toPerson(uri, name, {
+        handle: value(b, 'handle'),
+        logo: value(b, 'logo'),
+      })
+      people.set(uri, person)
+    }
+    const github = parseGithubUsername(value(b, 'siloUsername'))
+    if (github && person.github === undefined) person.github = github
+    const w3cId = parseW3cId(value(b, 'siloId'))
+    if (w3cId !== undefined && person.w3cId === undefined) person.w3cId = w3cId
   }
-  return people
+  return [...people.values()]
 }
 
 async function sparqlProjects(): Promise<Project[]> {
@@ -232,9 +273,8 @@ async function sparqlSpecifications(): Promise<Specification[]> {
 // The W3C API workflow (typescript/src/w3c-api) writes the groups and their
 // participants into the catalog dump, so this worker only queries it. Groups
 // carry the W3C group id as ex:siloId "w3c:<group id>", participants are
-// ex:Person records linked from their group with ex:member.
-const W3C_SILO_PREFIX = 'w3c:'
-
+// ex:Person records linked from their group with ex:member; the same siloId
+// carries each participant's stable W3C user id.
 const toW3cParticipant = (
   uri: string,
   name: string,
@@ -257,11 +297,13 @@ async function sparqlW3cGroups(): Promise<W3cGroup[]> {
     ),
     queryBindings(
       `PREFIX ex: <${EX}>
-       SELECT ?group ?person ?name ?logo WHERE {
-         ?group a ex:Organization ; ex:siloId ?siloId ; ex:member ?person .
-         FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
+       SELECT ?group ?person ?name ?logo ?siloUsername ?siloId WHERE {
+         ?group a ex:Organization ; ex:siloId ?groupSiloId ; ex:member ?person .
+         FILTER (STRSTARTS(STR(?groupSiloId), "${W3C_SILO_PREFIX}"))
          ?person a ex:Person ; ex:name ?name .
          OPTIONAL { ?person ex:logo ?logo }
+         OPTIONAL { ?person ex:siloUsername ?siloUsername }
+         OPTIONAL { ?person ex:siloId ?siloId }
        }`,
     ),
   ])
@@ -275,15 +317,26 @@ async function sparqlW3cGroups(): Promise<W3cGroup[]> {
     groups.set(uri, { id, uri, name, participants: [] })
   }
 
+  // A participant binds once per logo/siloId, so fold the rows per group.
+  const participants = new Map<string, W3cParticipant>()
   for (const b of memberRows) {
     const groupUri = value(b, 'group')
     const person = value(b, 'person')
     const name = value(b, 'name')
     const group = groupUri ? groups.get(groupUri) : undefined
-    if (!group || !person || !name) continue
-    // A person with several logos binds more than once; keep the first row.
-    if (group.participants.some((p) => p.uri === person)) continue
-    group.participants.push(toW3cParticipant(person, name, value(b, 'logo')))
+    if (!group || !groupUri || !person || !name) continue
+    const key = `${groupUri}\n${person}`
+    let participant = participants.get(key)
+    if (!participant) {
+      participant = toW3cParticipant(person, name, value(b, 'logo'))
+      participants.set(key, participant)
+      group.participants.push(participant)
+    }
+    const github = parseGithubUsername(value(b, 'siloUsername'))
+    if (github && participant.github === undefined) participant.github = github
+    const w3cId = parseW3cId(value(b, 'siloId'))
+    if (w3cId !== undefined && participant.w3cId === undefined)
+      participant.w3cId = w3cId
   }
 
   for (const group of groups.values()) {
@@ -498,19 +551,31 @@ async function loadProject(id: string) {
         const values = memberUris.map((uri) => `<${uri}>`).join(' ')
         const peopleRows = await queryBindings(
           `PREFIX ex: <${EX}>
-           SELECT ?id ?name ?handle WHERE {
+           SELECT ?id ?name ?handle ?siloUsername ?siloId WHERE {
              VALUES ?id { ${values} }
              ?id a ex:Person ; ex:name ?name .
              OPTIONAL { ?id ex:forumHandle ?handle }
+             OPTIONAL { ?id ex:siloUsername ?siloUsername }
+             OPTIONAL { ?id ex:siloId ?siloId }
            }`,
         )
-        const members: Person[] = []
+        const members = new Map<string, Person>()
         for (const b of peopleRows) {
           const pid = value(b, 'id')
           const pname = value(b, 'name')
-          if (pid && pname) members.push(toPerson(pid, pname, value(b, 'handle')))
+          if (!pid || !pname) continue
+          let person = members.get(pid)
+          if (!person) {
+            person = toPerson(pid, pname, { handle: value(b, 'handle') })
+            members.set(pid, person)
+          }
+          const github = parseGithubUsername(value(b, 'siloUsername'))
+          if (github && person.github === undefined) person.github = github
+          const w3cId = parseW3cId(value(b, 'siloId'))
+          if (w3cId !== undefined && person.w3cId === undefined)
+            person.w3cId = w3cId
         }
-        state.people = { status: 'ready', data: members }
+        state.people = { status: 'ready', data: [...members.values()] }
         emit({ key: 'people', value: state.people })
       }
     }

@@ -3,21 +3,27 @@ import type { RouteDefinition } from '@solidjs/router'
 import { A } from '@solidjs/router'
 import Home from './routes/Home'
 import People from './routes/People'
+import PersonDetail from './routes/PersonDetail'
 import Projects from './routes/Projects'
 import ProjectDetail from './routes/ProjectDetail'
 import Software from './routes/Software'
 import Specifications from './routes/Specifications'
+import SpecificationDetail from './routes/SpecificationDetail'
 import Groups from './routes/Groups'
+import GroupDetail from './routes/GroupDetail'
 import { ThemeToggle } from './components/ThemeToggle'
 
 export const routes: RouteDefinition[] = [
   { path: '/', component: Home },
   { path: '/people', component: People },
+  { path: '/people/:id', component: PersonDetail },
   { path: '/projects', component: Projects },
   { path: '/projects/:id', component: ProjectDetail },
   { path: '/software', component: Software },
   { path: '/specifications', component: Specifications },
+  { path: '/specifications/:id', component: SpecificationDetail },
   { path: '/groups', component: Groups },
+  { path: '/groups/:id', component: GroupDetail },
 ]
 
 const navLink =
