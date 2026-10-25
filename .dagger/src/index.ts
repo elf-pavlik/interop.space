@@ -141,9 +141,12 @@ export class DcentQuest {
       .withServiceBinding("sparql", sparql)
       .withEnvVariable("TEMPORAL_ADDRESS", "temporal:7233")
       .withEnvVariable("SPARQL_ENDPOINT", SPARQL_ENDPOINT)
-      .withEnvVariable("DATASET_PATH", "/app/data/dataset.nq")
+      // The previous dump seeds the store; the workflow only fetches what it
+      // does not contain yet. Without a dump it starts from the fallback
+      // GitHub account.
+      .withEnvVariable("DUMP_PATH", "/seed/dump.nq")
+      .withMountedDirectory("/seed", source.directory("ui/public"))
       .withDirectory("/app", source.directory("typescript"))
-      .withFile("/app/data/dataset.nq", source.file("test/dataset.nq"))
       .withWorkdir("/app")
       .withExec(["bun", "install"])
       .withEntrypoint(["bun", "run", "src/worker.ts"])
@@ -184,8 +187,8 @@ export class DcentQuest {
     const dotnetWorker = await this.dotnetWorker(source, temporal, sparql)
     await sparql.id()
 
-    // Run the client. It uses workflow.execute, so it blocks until both
-    // workflows complete — the workers must be bound here (not only to the
+    // Run the client. It uses workflow.execute, so it blocks until the W3C
+    // workflow completes — the workers must be bound here (not only to the
     // dump container) so they pick up the tasks while the client waits.
     await dag
       .container()
@@ -200,8 +203,8 @@ export class DcentQuest {
       .withExec(["bun", "run", "src/client.ts"])
       .sync()
 
-    // The client uses workflow.execute, so it only returns after both
-    // workflows (and their Oxigraph writes) have completed. A single fetch
+    // The client uses workflow.execute, so it only returns after the W3C
+    // workflow (and its Oxigraph writes) has completed. A single fetch
     // of the SPARQL endpoint is therefore enough.
     // The RUN_ID env var makes this container's exec graph run-unique:
     // without it, the contention-curl exec is identical across sessions and
@@ -229,8 +232,8 @@ export class DcentQuest {
     const dotnetWorker = await this.dotnetWorker(source, temporal, sparql)
     await sparql.id()
 
-    // Run the client. It uses workflow.execute, so it blocks until both
-    // workflows complete — the workers must be bound here (not only to the
+    // Run the client. It uses workflow.execute, so it blocks until the W3C
+    // workflow completes — the workers must be bound here (not only to the
     // UI container) so they pick up the tasks while the client waits.
     await dag
       .container()

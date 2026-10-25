@@ -9,6 +9,7 @@ import type {
   Project,
   SliceUpdate,
   Software,
+  Specification,
   W3cGroup,
   W3cParticipant,
 } from './protocol'
@@ -19,6 +20,7 @@ const state: AppState = {
   people: { status: 'idle', data: [] },
   projects: { status: 'idle', data: [] },
   software: { status: 'idle', data: [] },
+  specifications: { status: 'idle', data: [] },
   w3cGroups: {
     status: 'idle',
     data: { groups: [], selected: [], common: [] },
@@ -182,6 +184,48 @@ async function sparqlSoftware(): Promise<Software[]> {
   return list.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+async function sparqlSpecifications(): Promise<Specification[]> {
+  const rows = await queryBindings(
+    `PREFIX ex: <${EX}>
+     SELECT ?spec ?name ?shortname ?landingPage ?editorDraft ?groupName WHERE {
+       ?spec a ex:Specification ; ex:name ?name .
+       OPTIONAL { ?spec ex:shortname ?shortname }
+       OPTIONAL { ?spec ex:landingPage ?landingPage }
+       OPTIONAL { ?spec ex:editorDraft ?editorDraft }
+       OPTIONAL {
+         ?group a ex:Organization ; ex:specification ?spec ; ex:name ?groupName .
+       }
+     }`,
+  )
+  const specs = new Map<string, Specification>()
+  for (const b of rows) {
+    const uri = value(b, 'spec')
+    const name = value(b, 'name')
+    if (!uri || !name) continue
+    let spec = specs.get(uri)
+    if (!spec) {
+      spec = {
+        id: short(uri),
+        uri,
+        name,
+        shortname: value(b, 'shortname'),
+        landingPage: value(b, 'landingPage'),
+        editorDraft: value(b, 'editorDraft'),
+        groups: [],
+      }
+      specs.set(uri, spec)
+    }
+    const groupName = value(b, 'groupName')
+    if (groupName && !spec.groups.includes(groupName)) {
+      spec.groups.push(groupName)
+    }
+  }
+  for (const spec of specs.values()) {
+    spec.groups.sort((a, b) => a.localeCompare(b))
+  }
+  return [...specs.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
 // ---------------------------------------------------------------------------
 // W3C groups
 // ---------------------------------------------------------------------------
@@ -314,15 +358,34 @@ async function loadSoftware() {
   emit({ key: 'software', value: state.software })
 }
 
+async function loadSpecifications() {
+  if (state.specifications.status === 'loading') return
+  state.specifications = {
+    status: 'loading',
+    data: state.specifications.data,
+  }
+  emit({ key: 'specifications', value: state.specifications })
+  try {
+    const data = await sparqlSpecifications()
+    state.specifications = { status: 'ready', data }
+  } catch (e) {
+    state.specifications = {
+      status: 'error',
+      data: state.specifications.data,
+      error: String(e),
+    }
+  }
+  emit({ key: 'specifications', value: state.specifications })
+}
+
 async function loadW3cGroups() {
   if (state.w3cGroups.status === 'loading') return
   state.w3cGroups = { status: 'loading', data: state.w3cGroups.data }
   emit({ key: 'w3cGroups', value: state.w3cGroups })
   try {
     const groups = await sparqlW3cGroups()
-    // Start with every group in the dump selected, so the intersection is
-    // visible as soon as the page opens; the checkboxes can undo that.
-    const selected = groups.map((g) => g.id)
+    // Load with no groups selected; the checkboxes drive the comparison.
+    const selected: number[] = []
     state.w3cGroups = {
       status: 'ready',
       data: { groups, selected, common: commonParticipants(groups, selected) },
@@ -477,6 +540,9 @@ self.onmessage = (e: MessageEvent<Command>) => {
       break
     case 'loadSoftware':
       loadSoftware()
+      break
+    case 'loadSpecifications':
+      loadSpecifications()
       break
     case 'loadW3cGroups':
       loadW3cGroups()

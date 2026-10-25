@@ -23,6 +23,16 @@ export type Software = {
   dependencies: string[] // names of linked software (ex:hasDependencyOn targets)
 }
 
+export type Specification = {
+  id: string // short display/URL form (tail of the W3C API spec URI)
+  uri: string // full W3C API URI
+  name: string
+  shortname?: string
+  landingPage?: string // public TR URL
+  editorDraft?: string
+  groups: string[] // names of W3C groups that deliver the spec
+}
+
 export type W3cParticipant = {
   uri: string // person URI in the catalog dump (ex:member target)
   name: string
@@ -49,6 +59,7 @@ export type AppState = {
   people: AsyncSlice<Person[]>
   projects: AsyncSlice<Project[]>
   software: AsyncSlice<Software[]>
+  specifications: AsyncSlice<Specification[]>
   w3cGroups: AsyncSlice<W3cGroupsData>
 }
 
@@ -58,6 +69,7 @@ export type Command =
   | { type: 'loadProjects' }
   | { type: 'loadProject'; id: string }
   | { type: 'loadSoftware' }
+  | { type: 'loadSpecifications' }
   | { type: 'loadW3cGroups' }
   | { type: 'toggleW3cGroup'; id: number }
 
@@ -66,4 +78,5 @@ export type SliceUpdate =
   | { key: 'people'; value: AppState['people'] }
   | { key: 'projects'; value: AppState['projects'] }
   | { key: 'software'; value: AppState['software'] }
+  | { key: 'specifications'; value: AppState['specifications'] }
   | { key: 'w3cGroups'; value: AppState['w3cGroups'] }

@@ -1,1 +1,7 @@
 <https://elf-pavlik.hackers4peace.net> <https://www.w3.org/ns/activitystreams#name> "elf Pavlik" .
+<https://elf-pavlik.hackers4peace.net> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://example.org#Person> .
+<https://elf-pavlik.hackers4peace.net> <http://example.org#name> "elf Pavlik" .
+<https://elf-pavlik.hackers4peace.net> <http://example.org#logo> <https://avatars.githubusercontent.com/u/876431?v=4> .
+<https://elf-pavlik.hackers4peace.net> <http://example.org#siloId> "github:876431" .
+<https://elf-pavlik.hackers4peace.net> <http://example.org#siloId> "w3c:46577" .
+<https://elf-pavlik.hackers4peace.net> <http://example.org#siloUsername> "github:elf-pavlik" .

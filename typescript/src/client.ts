@@ -24,8 +24,11 @@ async function run() {
   //     workflowExecutionTimeout: '15 minutes',
   //   })
 
-  // For now the dump is built from the W3C API workflow (it seeds the catalog
-  // and adds the participants of every W3C group the catalog lists).
+  // For now the dump is grown from the previous dump (or the fallback
+  // elf-pavlik GitHub account when there is none). With upstream data treated
+  // as frozen, people already linked to a W3C group, groups already present
+  // and groups with specs are skipped; only missing groups, participants and
+  // specifications are fetched from api.w3.org.
   const w3c = await client.workflow.execute('w3cApiWorkflow', {
     taskQueue: 'w3c',
     workflowId: `w3c-api-${Date.now()}`,
