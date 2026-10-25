@@ -9,6 +9,7 @@ import type {
   Project,
   SliceUpdate,
   Software,
+  SpecContributor,
   Specification,
   W3cGroup,
   W3cParticipant,
@@ -75,15 +76,20 @@ const EX = 'http://example.org#'
 const TAX = 'https://solidproject.solidcommunity.net/catalog/taxonomy#'
 
 // Short display/URL form of a catalog URI: tail after the last / or #,
-// with a leading urn:uuid: prefix dropped (e.g. urn:uuid:abc -> abc).
-const short = (uri: string) =>
-  uri.replace(/^.*[/#]/, '').replace(/^urn:uuid:/, '')
+// with trailing separators and the known URN prefixes dropped.
+const short = (uri: string) => {
+  const trimmed = uri.replace(/[/#]+$/, '')
+  return trimmed
+    .replace(/^.*[/#]/, '')
+    .replace(/^urn:uuid:/, '')
+    .replace(/^urn:w3c:person:/, '')
+}
 
 const robohash = (seed: string) =>
   `https://robohash.org/${seed}?set=set4&size=128x128`
 
 // Groups and people both use ex:siloId "w3c:<numeric id>" for the stable W3C
-// identifier; the catalog URI stays the opaque API one.
+// identifier; ex:w3cApiUrl keeps the opaque API self link.
 const W3C_SILO_PREFIX = 'w3c:'
 
 const parseW3cId = (siloId: string | undefined): number | undefined => {
@@ -225,16 +231,66 @@ async function sparqlSoftware(): Promise<Software[]> {
   return list.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+const toSpecContributor = (
+  value: string | undefined,
+  name: string | undefined,
+  logo: string | undefined,
+  siloUsername: string | undefined,
+): SpecContributor | undefined => {
+  if (!value) return undefined
+  const isIri =
+    value.startsWith('urn:') ||
+    value.startsWith('http://') ||
+    value.startsWith('https://')
+  const github = parseGithubUsername(siloUsername)
+  if (!name && !isIri) return { name: value }
+  const displayName = name ?? value
+  return {
+    ...(isIri ? { uri: value, id: short(value) } : {}),
+    name: displayName,
+    ...(isIri ? { avatarUrl: logo ?? robohash(short(value)) } : {}),
+    ...(github ? { github } : {}),
+  }
+}
+
+const addSpecContributor = (
+  people: SpecContributor[],
+  person: SpecContributor | undefined,
+) => {
+  if (!person) return
+  const key = person.uri ?? person.name
+  if (!people.some((item) => (item.uri ?? item.name) === key)) {
+    people.push(person)
+  }
+}
+
 async function sparqlSpecifications(): Promise<Specification[]> {
   const rows = await queryBindings(
     `PREFIX ex: <${EX}>
-     SELECT ?spec ?name ?shortname ?landingPage ?editorDraft ?groupName WHERE {
+     PREFIX dcterms: <http://purl.org/dc/terms/>
+     PREFIX bibo: <http://purl.org/ontology/bibo/>
+     SELECT ?spec ?name ?shortname ?landingPage ?editorDraft ?group ?groupName ?w3cApiUrl
+            ?author ?authorName ?authorLogo ?authorSilo
+            ?editor ?editorName ?editorLogo ?editorSilo WHERE {
        ?spec a ex:Specification ; ex:name ?name .
        OPTIONAL { ?spec ex:shortname ?shortname }
        OPTIONAL { ?spec ex:landingPage ?landingPage }
        OPTIONAL { ?spec ex:editorDraft ?editorDraft }
+       OPTIONAL { ?spec ex:w3cApiUrl ?w3cApiUrl }
        OPTIONAL {
          ?group a ex:Organization ; ex:specification ?spec ; ex:name ?groupName .
+       }
+       OPTIONAL {
+         ?spec dcterms:creator ?author .
+         OPTIONAL { ?author ex:name ?authorName }
+         OPTIONAL { ?author ex:logo ?authorLogo }
+         OPTIONAL { ?author ex:siloUsername ?authorSilo }
+       }
+       OPTIONAL {
+         ?spec bibo:editor ?editor .
+         OPTIONAL { ?editor ex:name ?editorName }
+         OPTIONAL { ?editor ex:logo ?editorLogo }
+         OPTIONAL { ?editor ex:siloUsername ?editorSilo }
        }
      }`,
   )
@@ -252,9 +308,35 @@ async function sparqlSpecifications(): Promise<Specification[]> {
         shortname: value(b, 'shortname'),
         landingPage: value(b, 'landingPage'),
         editorDraft: value(b, 'editorDraft'),
+        authors: [],
+        editors: [],
         groups: [],
+        groupUris: [],
+        w3cApiUrl: value(b, 'w3cApiUrl'),
       }
       specs.set(uri, spec)
+    }
+    addSpecContributor(
+      spec.authors,
+      toSpecContributor(
+        value(b, 'author'),
+        value(b, 'authorName'),
+        value(b, 'authorLogo'),
+        value(b, 'authorSilo'),
+      ),
+    )
+    addSpecContributor(
+      spec.editors,
+      toSpecContributor(
+        value(b, 'editor'),
+        value(b, 'editorName'),
+        value(b, 'editorLogo'),
+        value(b, 'editorSilo'),
+      ),
+    )
+    const group = value(b, 'group')
+    if (group && !spec.groupUris.includes(group)) {
+      spec.groupUris.push(group)
     }
     const groupName = value(b, 'groupName')
     if (groupName && !spec.groups.includes(groupName)) {
@@ -262,7 +344,10 @@ async function sparqlSpecifications(): Promise<Specification[]> {
     }
   }
   for (const spec of specs.values()) {
+    spec.authors.sort((a, b) => a.name.localeCompare(b.name))
+    spec.editors.sort((a, b) => a.name.localeCompare(b.name))
     spec.groups.sort((a, b) => a.localeCompare(b))
+    spec.groupUris.sort((a, b) => a.localeCompare(b))
   }
   return [...specs.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -290,9 +375,10 @@ async function sparqlW3cGroups(): Promise<W3cGroup[]> {
   const [groupRows, memberRows] = await Promise.all([
     queryBindings(
       `PREFIX ex: <${EX}>
-       SELECT ?uri ?name ?siloId WHERE {
+       SELECT ?uri ?name ?siloId ?w3cApiUrl WHERE {
          ?uri a ex:Organization ; ex:name ?name ; ex:siloId ?siloId .
          FILTER (STRSTARTS(STR(?siloId), "${W3C_SILO_PREFIX}"))
+         OPTIONAL { ?uri ex:w3cApiUrl ?w3cApiUrl }
        }`,
     ),
     queryBindings(
@@ -314,7 +400,13 @@ async function sparqlW3cGroups(): Promise<W3cGroup[]> {
     if (!uri || !name || !siloId) continue
     const id = Number(siloId.slice(W3C_SILO_PREFIX.length))
     if (!Number.isInteger(id)) continue
-    groups.set(uri, { id, uri, name, participants: [] })
+    groups.set(uri, {
+      id,
+      uri,
+      name,
+      w3cApiUrl: value(b, 'w3cApiUrl'),
+      participants: [],
+    })
   }
 
   // A participant binds once per logo/siloId, so fold the rows per group.

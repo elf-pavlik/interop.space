@@ -3,7 +3,11 @@ import type { Person, W3cParticipant } from '../worker/protocol'
 // Tail of a catalog URI, mirroring the worker's `short()` helper, so a group
 // participant resolves to the same /people/:id page as the People directory.
 export const shortUri = (uri: string) =>
-  uri.replace(/^.*[/#]/, '').replace(/^urn:uuid:/, '')
+  uri
+    .replace(/[/#]+$/, '')
+    .replace(/^.*[/#]/, '')
+    .replace(/^urn:uuid:/, '')
+    .replace(/^urn:w3c:person:/, '')
 
 // Group participants are ex:Person nodes too; the participant view only lists
 // the fields needed by PersonCard.

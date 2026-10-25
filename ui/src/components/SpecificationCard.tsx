@@ -1,6 +1,7 @@
 import type { Component } from 'solid-js'
 import { For, Show } from 'solid-js'
 import { A } from '@solidjs/router'
+import { ContributorChips } from './ContributorChips'
 import type { Specification } from '../worker/protocol'
 
 type SpecificationCardProps = {
@@ -61,6 +62,24 @@ export const SpecificationCard: Component<SpecificationCardProps> = (props) => (
             </a>
           )}
         </Show>
+      </div>
+    </Show>
+
+    <Show when={props.spec.editors.length > 0}>
+      <div class="space-y-1">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Editors
+        </p>
+        <ContributorChips people={props.spec.editors} />
+      </div>
+    </Show>
+
+    <Show when={props.spec.authors.length > 0}>
+      <div class="space-y-1">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Authors
+        </p>
+        <ContributorChips people={props.spec.authors} />
       </div>
     </Show>
 

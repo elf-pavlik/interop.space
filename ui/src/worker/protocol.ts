@@ -1,8 +1,8 @@
 // Shared actor protocol types (main thread + worker).
 
 export type Person = {
-  id: string // short display/URL form (tail of the catalog URI)
-  uri: string // full catalog URI
+  id: string // short display/URL form (W3C id for urn:w3c:person:*)
+  uri: string // full catalog URI (urn:w3c:person:<id> for W3C people)
   name: string
   avatarUrl: string
   handle?: string // ex:forumHandle when present
@@ -25,14 +25,26 @@ export type Software = {
   dependencies: string[] // names of linked software (ex:hasDependencyOn targets)
 }
 
+export type SpecContributor = {
+  uri?: string // person URN when the author/editor is resolved
+  id?: string // short display/URL form of the person
+  name: string
+  avatarUrl?: string
+  github?: string // connected GitHub login, when known
+}
+
 export type Specification = {
-  id: string // short display/URL form (tail of the W3C API spec URI)
-  uri: string // full W3C API URI
+  id: string // short display/URL form (tail of the canonical shortlink)
+  uri: string // canonical public shortlink
   name: string
   shortname?: string
   landingPage?: string // public TR URL
   editorDraft?: string
+  authors: SpecContributor[]
+  editors: SpecContributor[]
   groups: string[] // names of W3C groups that deliver the spec
+  groupUris: string[] // canonical group IRIs that deliver the spec
+  w3cApiUrl?: string // W3C API self link
 }
 
 export type W3cParticipant = {
@@ -45,8 +57,9 @@ export type W3cParticipant = {
 
 export type W3cGroup = {
   id: number // W3C API group id, from the catalog's ex:siloId "w3c:<id>"
-  uri: string // full catalog URI of the organization
+  uri: string // canonical public homepage
   name: string
+  w3cApiUrl?: string // W3C API self link
   participants: W3cParticipant[]
 }
 

@@ -56,6 +56,7 @@ declare module 'node-w3capi' {
     'editor-draft'?: string
     _links?: {
       self?: W3cApiLink
+      'latest-version'?: W3cApiLink
     }
   }
 

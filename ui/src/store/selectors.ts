@@ -16,6 +16,9 @@ export const groupById = (id: number): W3cGroup | undefined =>
 export const groupByName = (name: string): W3cGroup | undefined =>
   appState.w3cGroups.data.groups.find((g) => g.name === name)
 
+export const groupByUri = (uri: string): W3cGroup | undefined =>
+  appState.w3cGroups.data.groups.find((g) => g.uri === uri)
+
 // Person and group participants are the same ex:Person node, so the join is on
 // the full catalog URI.
 export const groupsOfPerson = (person: Person): W3cGroup[] =>
@@ -26,10 +29,24 @@ export const groupsOfPerson = (person: Person): W3cGroup[] =>
 export const specificationById = (id: string): Specification | undefined =>
   appState.specifications.data.find((s) => s.id === id)
 
-// Specifications carry their delivering groups by name (ex:specification on
-// the organization), so the join is on the group name.
-export const specificationsOf = (groupName: string): Specification[] =>
-  appState.specifications.data.filter((s) => s.groups.includes(groupName))
+export const authoredSpecificationsOf = (person: Person): Specification[] =>
+  appState.specifications.data.filter((s) =>
+    s.authors.some((author) => author.uri === person.uri),
+  )
+
+export const editedSpecificationsOf = (person: Person): Specification[] =>
+  appState.specifications.data.filter((s) =>
+    s.editors.some((editor) => editor.uri === person.uri),
+  )
+
+// Specifications carry their delivering group IRIs (ex:specification on the
+// organization), so the join is on the group subject. The name fallback keeps
+// older dumps readable while they are being replaced.
+export const specificationsOf = (group: W3cGroup): Specification[] =>
+  appState.specifications.data.filter(
+    (s) =>
+      s.groupUris.includes(group.uri) || s.groups.includes(group.name),
+  )
 
 export const projectById = (id: string): Project | undefined =>
   appState.projects.data.find((p) => p.id === id)

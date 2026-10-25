@@ -9,6 +9,7 @@
 //   DUMP_PATH=<dump.nq> bun run src/w3c-api/run.ts
 import { parseArgs } from 'node:util'
 import {
+  fetchW3cEditors,
   fetchW3cParticipants,
   fetchW3cSpecifications,
   listW3cUserGroups,
@@ -16,11 +17,14 @@ import {
   readSeed,
 } from './activities.ts'
 import {
+  buildEditorQuads,
   buildSpecificationQuads,
   buildW3cQuads,
   readDataset,
   serializeQuads,
 } from './analysis.ts'
+import type { W3cSpecification } from './analysis.ts'
+import { canonicalW3cId } from './person-ids.ts'
 
 export async function main(argv: string[]): Promise<void> {
   const { positionals } = parseArgs({ args: argv, allowPositionals: true })
@@ -43,9 +47,21 @@ export async function main(argv: string[]): Promise<void> {
     ),
   ])
 
-  const { personUris } = await readDataset(await readSeed(seed))
+  const { knownPersonIds } = await readDataset(await readSeed(seed))
+  const uniqueSpecs = new Map<string, W3cSpecification>()
+  for (const group of specs) {
+    for (const spec of group.specifications) uniqueSpecs.set(spec.uri, spec)
+  }
+  const editorData = await fetchW3cEditors([...uniqueSpecs.values()])
+  const participantIds = new Set(
+    fetched.flatMap((group) =>
+      group.participants.map((p) => canonicalW3cId(p.id)),
+    ),
+  )
+  const personIds = new Set([...knownPersonIds, ...participantIds])
   const quads = [
-    ...buildW3cQuads(fetched, personUris),
+    ...buildW3cQuads(fetched, knownPersonIds),
+    ...buildEditorQuads(editorData, personIds),
     ...buildSpecificationQuads(specs),
   ]
   for (const quad of serializeQuads(quads).trimEnd().split('\n')) {
@@ -61,11 +77,13 @@ export async function main(argv: string[]): Promise<void> {
     `spec checks: ${specificationGroups.length} groups, ${specs.reduce((n, g) => n + g.specifications.length, 0)} specs`,
   )
   for (const { group, participants } of fetched) {
-    const known = participants.filter((p) => personUris.has(`w3c:${p.id}`)).length
     console.error(
-      `  ${group.name} (w3c:${group.id}): ${participants.length} participants (${known} already in the seed)`,
+      `  ${group.name} (w3c:${group.id}): ${participants.length} participants`,
     )
   }
+  console.error(
+    `editors: ${new Set(editorData.flatMap((entry) => entry.editors.map((editor) => editor.id))).size}`,
+  )
   console.error(`quads: ${quads.length}`)
 }
 

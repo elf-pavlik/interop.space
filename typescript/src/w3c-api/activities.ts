@@ -10,25 +10,37 @@ import { readFile } from 'node:fs/promises'
 import w3capi from 'node-w3capi'
 import pThrottle from 'p-throttle'
 import { endpointFor, sanitizeNQuads } from '../software-dependencies/activities.ts'
+import { buildPersonNameIndex } from '../specref/authors.ts'
+import { linkSpecifications } from '../specref/link.ts'
+import { specrefMetadataDeleteUpdate } from '../specref/metadata.ts'
 import {
+  DEFAULT_SPECREF_URL,
+  loadSpecrefEntries,
+} from '../specref/source.ts'
+import {
+  buildEditorQuads,
   buildSpecificationQuads,
   buildStartPersonQuads,
   buildW3cQuads,
+  collectPeople,
   readDataset,
   serializeQuads,
 } from './analysis.ts'
 import type {
+  W3cEditor,
   W3cGroupParticipants,
   W3cGroupRef,
   W3cGroupSpecifications,
   W3cParticipant,
   W3cSpecification,
+  W3cSpecificationEditors,
 } from './analysis.ts'
 import type {
   W3cApiGroupDetail,
   W3cApiSpecification,
   W3cApiUserDetail,
 } from 'node-w3capi'
+import { canonicalW3cId } from './person-ids.ts'
 
 /** ui/public/dump.nq in the repo; Dagger mounts it at DUMP_PATH. */
 export const DEFAULT_DUMP_PATH = new URL(
@@ -124,11 +136,11 @@ async function buildFallbackSeed(): Promise<string> {
     records.push(
       serializeQuads(
         buildStartPersonQuads({
-          personUri: github.html_url || `https://github.com/${github.login}`,
-          name: github.name ?? detail.name ?? github.login,
+          name: detail.name ?? github.name ?? github.login,
           githubId: String(github.id),
           githubUsername: github.login,
           w3cId: detail.id,
+          w3cApiUrl: detail._links?.self?.href,
           logo: github.avatar_url,
         }),
       ),
@@ -259,9 +271,19 @@ export async function listW3cUserGroups(
     )
     for (const group of userGroups) {
       if (known.has(group.id)) continue
-      const uri = group._links?.self?.href
-      if (!uri || !Number.isInteger(group.id)) continue
-      groups.set(uri, { uri, id: group.id, name: group.name })
+      const apiUrl = group._links?.self?.href
+      if (!apiUrl || !Number.isInteger(group.id)) continue
+      const homepage = group._links?.homepage?.href
+      const uri = homepage ?? apiUrl
+      groups.set(uri, {
+        uri,
+        apiUrl,
+        ...(homepage ? { homepage } : {}),
+        id: group.id,
+        name: group.name,
+        ...(group.shortname ? { shortname: group.shortname } : {}),
+        ...(group.type ? { type: group.type } : {}),
+      })
     }
   }
 
@@ -341,6 +363,20 @@ async function postNQuads(what: string, nquads: string): Promise<void> {
   }
 }
 
+async function postUpdate(what: string, update: string): Promise<void> {
+  const endpoint = endpointFor('update')
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/sparql-update' },
+    body: update,
+  })
+  if (!response.ok) {
+    throw new Error(
+      `Failed to update ${what} at ${endpoint}: HTTP ${response.status} ${response.statusText}`,
+    )
+  }
+}
+
 /** Split N-Quads text into batches. N-Quads is line-oriented (one quad/line). */
 function batchNQuads(nquads: string, size: number): string[] {
   const lines = nquads.split('\n').filter((line) => line.trim() !== '')
@@ -373,14 +409,16 @@ export async function fetchW3cSpecifications(
   )
   const specifications: W3cSpecification[] = []
   for (const spec of specs) {
-    const uri = spec._links?.self?.href
-    if (!uri || !spec.title) continue
+    const apiUrl = spec._links?.self?.href
+    const uri = spec.shortlink
+    if (!apiUrl || !uri || !spec.title) continue
     specifications.push({
       uri,
+      apiUrl,
       title: spec.title,
       shortname: spec.shortname,
-      shortlink: spec.shortlink,
       editorDraft: spec['editor-draft'],
+      latestVersionUrl: spec._links?.['latest-version']?.href,
     })
   }
   return specifications.sort((a, b) =>
@@ -388,21 +426,124 @@ export async function fetchW3cSpecifications(
   )
 }
 
+const fetchEditorList = pThrottle({ limit: 10, interval: 1000 })(
+  (url: string) => fetchW3cList<W3cApiUserDetail>(url, 'editors'),
+)
+
+/**
+ * Editors of the latest W3C API version of each specification. The API exposes
+ * editors per version; versions are not modeled yet, so the spec node points at
+ * the editor and records the latest version URL as provenance.
+ */
+export async function fetchW3cEditors(
+  specifications: W3cSpecification[],
+): Promise<W3cSpecificationEditors[]> {
+  const unique = new Map<string, W3cSpecification>()
+  for (const specification of specifications) {
+    unique.set(specification.uri, specification)
+  }
+
+  return Promise.all(
+    [...unique.values()].map(async (specification) => {
+      if (!specification.latestVersionUrl) {
+        return { specification, editors: [] }
+      }
+      const users = await fetchEditorList(
+        `${specification.latestVersionUrl}/editors`,
+      )
+      const editors: W3cEditor[] = []
+      for (const user of users) {
+        const href = user._links?.self?.href
+        if (!href || !Number.isInteger(user.id) || !user.name) continue
+        const github = user['connected-accounts']?.find(
+          (account) => account.service === 'github',
+        )
+        editors.push({
+          id: user.id,
+          href,
+          name: user.name,
+          photo: pickPhoto(user),
+          ...(github
+            ? {
+                githubId: github.identifier,
+                githubUsername: github.nickname,
+              }
+            : {}),
+        })
+      }
+      return {
+        specification,
+        editors: editors.sort((a, b) => a.name.localeCompare(b.name)),
+      }
+    }),
+  )
+}
+
 /**
  * Add only the groups the dump does not have yet, plus their participants and
  * the specifications for groups that have none. The seed graph is parsed again
  * here (not passed as quads) so people it already knows — including the seed
- * person — keep their URI and name instead of being forked.
+ * person — keep their URI and name instead of being forked. Specs already in
+ * the seed are enriched from Specref too, so an existing dump can gain the
+ * bibliography metadata without a full recrawl.
  */
 export async function storeW3cData(
   seed: SeedRef,
   groups: W3cGroupParticipants[],
   specifications: W3cGroupSpecifications[],
 ): Promise<string> {
-  const { personUris } = await readDataset(await readSeed(seed))
+  const {
+    knownPersonIds,
+    specifications: seedSpecifications,
+    people: seedPeople,
+  } = await readDataset(await readSeed(seed))
+
+  // Enrich specs already in the seed too, so an existing dump can gain Specref
+  // metadata without a full recrawl. A spec can be delivered by more than one
+  // group, so key by subject and let freshly fetched data win.
+  const specByUri = new Map<string, W3cSpecification>()
+  for (const spec of seedSpecifications) specByUri.set(spec.uri, spec)
+  for (const group of specifications) {
+    for (const spec of group.specifications) specByUri.set(spec.uri, spec)
+  }
+  const specs = [...specByUri.values()]
+
+  const [editorData, specref] = await Promise.all([
+    fetchW3cEditors(specs),
+    loadSpecrefEntries(
+      process.env.SPECREF_PATH,
+      process.env.SPECREF_URL ?? DEFAULT_SPECREF_URL,
+    ),
+  ])
+  const { entries, source } = specref
+
+  const participantIds = new Set(
+    groups.flatMap((group) =>
+      group.participants.map((p) => canonicalW3cId(p.id)),
+    ),
+  )
+  const personIds = new Set([...knownPersonIds, ...participantIds])
+  const people = collectPeople(
+    seedPeople,
+    groups,
+    editorData,
+    knownPersonIds,
+  )
+  const authorIndex = buildPersonNameIndex(people)
+  const linked = linkSpecifications(specs, entries, { authorIndex })
+
+  // Replace stale Specref metadata so manual author-map changes take effect on
+  // an existing dump instead of leaving the old literal creator behind.
+  const metadataDelete = specrefMetadataDeleteUpdate(
+    specs.map((spec) => spec.uri),
+  )
+  if (metadataDelete) await postUpdate('Specref metadata', metadataDelete)
+
   const quads = [
-    ...buildW3cQuads(groups, personUris),
+    ...buildW3cQuads(groups, knownPersonIds),
     ...buildSpecificationQuads(specifications),
+    ...buildEditorQuads(editorData, personIds),
+    ...linked.quads,
   ]
   for (let i = 0; i < quads.length; i += STORE_BATCH_SIZE) {
     await postNQuads(
@@ -410,12 +551,56 @@ export async function storeW3cData(
       serializeQuads(quads.slice(i, i + STORE_BATCH_SIZE)),
     )
   }
-  const people = new Set(
-    groups.flatMap((g) => g.participants.map((p) => p.id)),
+  const participantCount = participantIds.size
+  const editorCount = new Set(
+    editorData.flatMap((entry) => entry.editors.map((editor) => editor.id)),
   ).size
   const specCount = specifications.reduce(
     (n, group) => n + group.specifications.length,
     0,
   )
-  return `Stored ${quads.length} quads for ${people} participants in ${groups.length} groups and ${specCount} specs in ${specifications.length} groups`
+
+  const collisionReport = linked.collisions.map((collision) => ({
+    key: collision.key,
+    spec: collision.target,
+    candidates: collision.candidates.map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      href: candidate.href,
+      edDraft: candidate.edDraft,
+      status: candidate.status,
+      publisher: candidate.publisher,
+      deliveredBy: candidate.deliveredBy,
+    })),
+  }))
+  if (collisionReport.length > 0) {
+    console.warn(
+      `Specref collisions:\n${JSON.stringify(collisionReport, null, 2)}`,
+    )
+  }
+
+  const authorProblems = linked.authors.filter(
+    (author) => author.status === 'unmatched' || author.status === 'ambiguous',
+  )
+  const authorCounts = {
+    matched: linked.authors.filter((author) => author.status === 'matched').length,
+    override: linked.authors.filter((author) => author.status === 'override').length,
+    unmatched: linked.authors.filter((author) => author.status === 'unmatched').length,
+    ambiguous: linked.authors.filter((author) => author.status === 'ambiguous').length,
+  }
+
+  const enrichment = {
+    source,
+    matched: linked.matches.length,
+    byKey: linked.byKey,
+    collisions: collisionReport,
+    unmatched: linked.unmatched,
+    editors: editorCount,
+    authors: {
+      counts: authorCounts,
+      problems: authorProblems,
+    },
+  }
+
+  return `Stored ${quads.length} quads for ${participantCount} participants, ${editorCount} editors, ${groups.length} groups and ${specCount} specs in ${specifications.length} groups\nSpecref: ${JSON.stringify(enrichment, null, 2)}`
 }

@@ -3,11 +3,15 @@ import { For, Match, Show, Switch, onMount } from 'solid-js'
 import { A, useParams } from '@solidjs/router'
 import { Avatar } from '../components/ui/avatar'
 import { GithubHandle } from '../components/GithubHandle'
+import { SpecificationCard } from '../components/SpecificationCard'
 import { appActor } from '../store/app'
 import {
+  authoredSpecificationsOf,
+  editedSpecificationsOf,
   groupsOfPerson,
   peopleSlice,
   personById,
+  specificationsSlice,
   w3cGroupsSlice,
 } from '../store/selectors'
 
@@ -18,12 +22,22 @@ const PersonDetail: Component = () => {
     if (peopleSlice().status === 'idle') appActor.send({ type: 'loadPeople' })
     if (w3cGroupsSlice().status === 'idle')
       appActor.send({ type: 'loadW3cGroups' })
+    if (specificationsSlice().status === 'idle')
+      appActor.send({ type: 'loadSpecifications' })
   })
 
   const person = () => personById(params.id)
   const groups = () => {
     const p = person()
     return p ? groupsOfPerson(p) : []
+  }
+  const edited = () => {
+    const p = person()
+    return p ? editedSpecificationsOf(p) : []
+  }
+  const authored = () => {
+    const p = person()
+    return p ? authoredSpecificationsOf(p) : []
   }
 
   return (
@@ -63,6 +77,77 @@ const PersonDetail: Component = () => {
                     </p>
                   </Show>
                 </div>
+              </div>
+
+              <div class="space-y-3">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Specifications
+                </h2>
+                <Switch>
+                  <Match when={specificationsSlice().status === 'error'}>
+                    <p class="text-red-500">
+                      Failed to load specifications:{' '}
+                      {specificationsSlice().error}
+                    </p>
+                  </Match>
+                  <Match
+                    when={
+                      specificationsSlice().status !== 'ready' &&
+                      edited().length === 0 &&
+                      authored().length === 0
+                    }
+                  >
+                    <p class="text-slate-500 dark:text-slate-400">
+                      Loading specifications…
+                    </p>
+                  </Match>
+                  <Match when={specificationsSlice().status === 'ready'}>
+                    <Show
+                      when={edited().length > 0 || authored().length > 0}
+                      fallback={
+                        <p class="text-slate-500 dark:text-slate-400">
+                          Not an author or editor of any specification in the
+                          catalog.
+                        </p>
+                      }
+                    >
+                      <div class="space-y-6">
+                        <Show when={edited().length > 0}>
+                          <div class="space-y-3">
+                            <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              Editor of
+                            </h3>
+                            <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <For each={edited()}>
+                                {(spec) => (
+                                  <li>
+                                    <SpecificationCard spec={spec} />
+                                  </li>
+                                )}
+                              </For>
+                            </ul>
+                          </div>
+                        </Show>
+                        <Show when={authored().length > 0}>
+                          <div class="space-y-3">
+                            <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              Author of
+                            </h3>
+                            <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <For each={authored()}>
+                                {(spec) => (
+                                  <li>
+                                    <SpecificationCard spec={spec} />
+                                  </li>
+                                )}
+                              </For>
+                            </ul>
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+                  </Match>
+                </Switch>
               </div>
 
               <div class="space-y-3">

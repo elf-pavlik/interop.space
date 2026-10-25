@@ -1,9 +1,11 @@
 import type { Component } from 'solid-js'
 import { For, Match, Show, Switch, onMount } from 'solid-js'
 import { A, useParams } from '@solidjs/router'
+import { ContributorSection } from '../components/ContributorChips'
 import { appActor } from '../store/app'
 import {
   groupByName,
+  groupByUri,
   specificationById,
   specificationsSlice,
   w3cGroupsSlice,
@@ -24,6 +26,21 @@ const SpecificationDetail: Component = () => {
   })
 
   const spec = () => specificationById(params.id)
+
+  const deliveredBy = () => {
+    const current = spec()
+    if (!current) return []
+    if (current.groupUris.length > 0) {
+      return current.groupUris.map((uri) => {
+        const group = groupByUri(uri)
+        return { uri, id: group?.id, name: group?.name ?? uri }
+      })
+    }
+    return current.groups.map((name) => {
+      const group = groupByName(name)
+      return { uri: group?.uri, id: group?.id, name }
+    })
+  }
 
   return (
     <section class="space-y-6">
@@ -86,12 +103,24 @@ const SpecificationDetail: Component = () => {
                 </Show>
               </div>
 
+              <ContributorSection
+                title="Editors"
+                people={s().editors}
+                empty="No editors recorded in the catalog."
+              />
+
+              <ContributorSection
+                title="Authors"
+                people={s().authors}
+                empty="No authors recorded in the catalog."
+              />
+
               <div class="space-y-3">
                 <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Delivered by
                 </h2>
                 <Show
-                  when={s().groups.length > 0}
+                  when={deliveredBy().length > 0}
                   fallback={
                     <p class="text-slate-500 dark:text-slate-400">
                       No group is linked to this specification in the catalog.
@@ -99,23 +128,23 @@ const SpecificationDetail: Component = () => {
                   }
                 >
                   <ul class="flex flex-wrap gap-2">
-                    <For each={s().groups}>
-                      {(name) => (
+                    <For each={deliveredBy()}>
+                      {(group) => (
                         <li>
                           <Show
-                            when={groupByName(name)}
+                            when={group.id}
                             fallback={
                               <span class="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                {name}
+                                {group.name}
                               </span>
                             }
                           >
-                            {(group) => (
+                            {(id) => (
                               <A
-                                href={`/groups/${group().id}`}
+                                href={`/groups/${id()}`}
                                 class="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                               >
-                                {name}
+                                {group.name}
                               </A>
                             )}
                           </Show>

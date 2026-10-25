@@ -68,7 +68,7 @@ const GroupDetail: Component = () => {
                   <Match
                     when={
                       specificationsSlice().status !== 'ready' &&
-                      specificationsOf(grp().name).length === 0
+                      specificationsOf(grp()).length === 0
                     }
                   >
                     <p class="text-slate-500 dark:text-slate-400">
@@ -77,7 +77,7 @@ const GroupDetail: Component = () => {
                   </Match>
                   <Match when={specificationsSlice().status === 'ready'}>
                     <Show
-                      when={specificationsOf(grp().name).length > 0}
+                      when={specificationsOf(grp()).length > 0}
                       fallback={
                         <p class="text-slate-500 dark:text-slate-400">
                           No specifications delivered by this group in the
@@ -86,7 +86,7 @@ const GroupDetail: Component = () => {
                       }
                     >
                       <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <For each={specificationsOf(grp().name)}>
+                        <For each={specificationsOf(grp())}>
                           {(spec) => (
                             <li>
                               <SpecificationCard spec={spec} />
