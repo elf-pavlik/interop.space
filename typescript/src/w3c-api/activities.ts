@@ -10,6 +10,11 @@ import { readFile } from 'node:fs/promises'
 import w3capi from 'node-w3capi'
 import pThrottle from 'p-throttle'
 import { endpointFor, sanitizeNQuads } from '../software-dependencies/activities.ts'
+import { buildCitationQuads, citationDeleteUpdate } from '../citations/build.ts'
+import { collectCitations } from '../citations/collect.ts'
+import { summarizeCitations, writeCitationReport } from '../citations/report.ts'
+import type { CitationReport } from '../citations/report.ts'
+import type { CatalogSpec } from '../citations/types.ts'
 import { buildPersonNameIndex } from '../specref/authors.ts'
 import { linkSpecifications } from '../specref/link.ts'
 import { specrefMetadataDeleteUpdate } from '../specref/metadata.ts'
@@ -25,6 +30,9 @@ import {
   collectPeople,
   readDataset,
   serializeQuads,
+  SHORTNAME,
+  SPECIFICATION_TYPE,
+  W3C_LATEST_VERSION_URL,
 } from './analysis.ts'
 import type {
   W3cEditor,
@@ -45,6 +53,12 @@ import { canonicalW3cId } from './person-ids.ts'
 /** ui/public/dump.nq in the repo; Dagger mounts it at DUMP_PATH. */
 export const DEFAULT_DUMP_PATH = new URL(
   '../../../ui/public/dump.nq',
+  import.meta.url,
+).pathname
+
+/** Written next to the dump; Dagger overrides this with CITATIONS_REPORT_PATH. */
+export const DEFAULT_CITATIONS_REPORT_PATH = new URL(
+  '../../../ui/public/citations-report.json',
   import.meta.url,
 ).pathname
 
@@ -377,6 +391,59 @@ async function postUpdate(what: string, update: string): Promise<void> {
   }
 }
 
+interface SparqlBinding {
+  value: string
+}
+
+interface SparqlResultDocument {
+  results: { bindings: Array<Record<string, SparqlBinding>> }
+}
+
+/** Run a SELECT and return plain string rows. */
+async function queryRows(
+  query: string,
+): Promise<Array<Record<string, string>>> {
+  const endpoint = endpointFor('query')
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/sparql-query',
+      Accept: 'application/sparql-results+json',
+    },
+    body: query,
+  })
+  if (!response.ok) {
+    throw new Error(
+      `Failed to query ${endpoint}: HTTP ${response.status} ${response.statusText}`,
+    )
+  }
+  const data = (await response.json()) as SparqlResultDocument
+  return data.results.bindings.map((binding) =>
+    Object.fromEntries(
+      Object.entries(binding).map(([key, value]) => [key, value.value]),
+    ),
+  )
+}
+
+/** All catalog specs from the live store, with an optional latest version. */
+export async function fetchCatalogSpecifications(): Promise<CatalogSpec[]> {
+  const rows = await queryRows(`SELECT ?spec ?shortname ?version WHERE {
+    ?spec a <${SPECIFICATION_TYPE}> .
+    OPTIONAL { ?spec <${SHORTNAME}> ?shortname }
+    OPTIONAL { ?spec <${W3C_LATEST_VERSION_URL}> ?version }
+  }`)
+  const specs: CatalogSpec[] = []
+  for (const row of rows) {
+    if (!row.spec) continue
+    specs.push({
+      uri: row.spec,
+      ...(row.shortname ? { shortname: row.shortname } : {}),
+      ...(row.version ? { latestVersionUrl: row.version } : {}),
+    })
+  }
+  return specs.sort((a, b) => a.uri.localeCompare(b.uri))
+}
+
 /** Split N-Quads text into batches. N-Quads is line-oriented (one quad/line). */
 function batchNQuads(nquads: string, size: number): string[] {
   const lines = nquads.split('\n').filter((line) => line.trim() !== '')
@@ -603,4 +670,57 @@ export async function storeW3cData(
   }
 
   return `Stored ${quads.length} quads for ${participantCount} participants, ${editorCount} editors, ${groups.length} groups and ${specCount} specs in ${specifications.length} groups\nSpecref: ${JSON.stringify(enrichment, null, 2)}`
+}
+
+/**
+ * Extract normative/informative references from the latest rendered version of
+ * every catalog spec. Only W3C TR targets already in the catalog become edges;
+ * out-of-catalog and non-W3C references are recorded in the report.
+ *
+ * Specs whose fetch or parse failed are not cleared, so their previous edges
+ * survive until a later run succeeds. The report is written next to the dump.
+ */
+export async function storeW3cCitations(): Promise<{
+  summary: string
+  report: CitationReport
+}> {
+  const specs = await fetchCatalogSpecifications()
+  const { citations, report } = await collectCitations(specs)
+  const quads = buildCitationQuads(citations)
+
+  const successful = report.documents
+    .filter((document) => document.status === 'ok')
+    .map((document) => document.spec)
+  const update = citationDeleteUpdate(successful)
+  if (update) await postUpdate('citations', update)
+
+  for (const batch of batchNQuads(serializeQuads(quads), STORE_BATCH_SIZE)) {
+    await postNQuads('citations', batch)
+  }
+
+  const reportPath =
+    process.env.CITATIONS_REPORT_PATH ?? DEFAULT_CITATIONS_REPORT_PATH
+  await writeCitationReport(reportPath, report)
+
+  const problems = report.documents.filter(
+    (document) =>
+      document.status !== 'ok' || document.unresolved.length > 0,
+  )
+  if (problems.length > 0) {
+    console.error('Citation problems:')
+    for (const document of problems) {
+      if (document.status !== 'ok') {
+        console.error(
+          `  ${document.status} ${document.spec}: ${document.error ?? ''}`,
+        )
+      }
+      for (const unresolved of document.unresolved) {
+        console.error(
+          `  unresolved ${document.spec} ${unresolved.key}: ${unresolved.reason}`,
+        )
+      }
+    }
+  }
+  console.error(summarizeCitations(report))
+  return { summary: summarizeCitations(report), report }
 }

@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import { Client, Connection } from '@temporalio/client'
 
 async function run() {
@@ -29,13 +30,34 @@ async function run() {
   // as frozen, people already linked to a W3C group, groups already present
   // and groups with specs are skipped; only missing groups, participants and
   // specifications are fetched from api.w3.org.
-  const w3c = await client.workflow.execute('w3cApiWorkflow', {
+  const w3c = (await client.workflow.execute('w3cApiWorkflow', {
     taskQueue: 'w3c',
     workflowId: `w3c-api-${Date.now()}`,
     workflowExecutionTimeout: '15 minutes',
-  })
+  })) as {
+    citations?: { summary: string; report: unknown }
+    [key: string]: unknown
+  }
 
-  console.log('w3c api workflow result:', JSON.stringify(w3c))
+  if (w3c.citations?.report) {
+    const reportPath =
+      process.env.CITATIONS_REPORT_PATH ?? '/tmp/citations-report.json'
+    await writeFile(
+      reportPath,
+      `${JSON.stringify(w3c.citations.report, null, 2)}\n`,
+      'utf8',
+    )
+    console.log(w3c.citations.summary)
+    console.log(`citations report: ${reportPath}`)
+  }
+
+  console.log(
+    'w3c api workflow result:',
+    JSON.stringify({
+      ...w3c,
+      citations: w3c.citations ? { summary: w3c.citations.summary } : undefined,
+    }),
+  )
 }
 
 run().catch((err) => {

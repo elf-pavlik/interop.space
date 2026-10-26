@@ -10,6 +10,7 @@ import type {
   SliceUpdate,
   Software,
   SpecContributor,
+  SpecReference,
   Specification,
   W3cGroup,
   W3cParticipant,
@@ -265,35 +266,133 @@ const addSpecContributor = (
 }
 
 async function sparqlSpecifications(): Promise<Specification[]> {
-  const rows = await queryBindings(
-    `PREFIX ex: <${EX}>
-     PREFIX dcterms: <http://purl.org/dc/terms/>
-     PREFIX bibo: <http://purl.org/ontology/bibo/>
-     SELECT ?spec ?name ?shortname ?landingPage ?editorDraft ?group ?groupName ?w3cApiUrl
-            ?author ?authorName ?authorLogo ?authorSilo
-            ?editor ?editorName ?editorLogo ?editorSilo WHERE {
-       ?spec a ex:Specification ; ex:name ?name .
-       OPTIONAL { ?spec ex:shortname ?shortname }
-       OPTIONAL { ?spec ex:landingPage ?landingPage }
-       OPTIONAL { ?spec ex:editorDraft ?editorDraft }
-       OPTIONAL { ?spec ex:w3cApiUrl ?w3cApiUrl }
-       OPTIONAL {
-         ?group a ex:Organization ; ex:specification ?spec ; ex:name ?groupName .
-       }
-       OPTIONAL {
-         ?spec dcterms:creator ?author .
-         OPTIONAL { ?author ex:name ?authorName }
-         OPTIONAL { ?author ex:logo ?authorLogo }
-         OPTIONAL { ?author ex:siloUsername ?authorSilo }
-       }
-       OPTIONAL {
-         ?spec bibo:editor ?editor .
-         OPTIONAL { ?editor ex:name ?editorName }
-         OPTIONAL { ?editor ex:logo ?editorLogo }
-         OPTIONAL { ?editor ex:siloUsername ?editorSilo }
-       }
-     }`,
-  )
+  const [rows, outgoingRows, incomingRows] = await Promise.all([
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       PREFIX dcterms: <http://purl.org/dc/terms/>
+       PREFIX bibo: <http://purl.org/ontology/bibo/>
+       SELECT ?spec ?name ?shortname ?landingPage ?editorDraft ?group ?groupName ?w3cApiUrl
+              ?author ?authorName ?authorLogo ?authorSilo
+              ?editor ?editorName ?editorLogo ?editorSilo WHERE {
+         ?spec a ex:Specification ; ex:name ?name .
+         OPTIONAL { ?spec ex:shortname ?shortname }
+         OPTIONAL { ?spec ex:landingPage ?landingPage }
+         OPTIONAL { ?spec ex:editorDraft ?editorDraft }
+         OPTIONAL { ?spec ex:w3cApiUrl ?w3cApiUrl }
+         OPTIONAL {
+           ?group a ex:Organization ; ex:specification ?spec ; ex:name ?groupName .
+         }
+         OPTIONAL {
+           ?spec dcterms:creator ?author .
+           OPTIONAL { ?author ex:name ?authorName }
+           OPTIONAL { ?author ex:logo ?authorLogo }
+           OPTIONAL { ?author ex:siloUsername ?authorSilo }
+         }
+         OPTIONAL {
+           ?spec bibo:editor ?editor .
+           OPTIONAL { ?editor ex:name ?editorName }
+           OPTIONAL { ?editor ex:logo ?editorLogo }
+           OPTIONAL { ?editor ex:siloUsername ?editorSilo }
+         }
+       }`,
+    ),
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       SELECT ?spec ?target ?targetName ?targetShortname ?predicate WHERE {
+         VALUES ?predicate { ex:normativeRef ex:informativeRef }
+         ?spec ?predicate ?target .
+         ?target a ex:Specification .
+         OPTIONAL { ?target ex:name ?targetName }
+         OPTIONAL { ?target ex:shortname ?targetShortname }
+       }`,
+    ),
+    queryBindings(
+      `PREFIX ex: <${EX}>
+       SELECT ?spec ?source ?sourceName ?sourceShortname ?predicate WHERE {
+         VALUES ?predicate { ex:normativeRef ex:informativeRef }
+         ?source ?predicate ?spec .
+         ?spec a ex:Specification .
+         ?source a ex:Specification .
+         OPTIONAL { ?source ex:name ?sourceName }
+         OPTIONAL { ?source ex:shortname ?sourceShortname }
+       }`,
+    ),
+  ])
+
+  // Merge the two citation directions by spec and target. A target can be both
+  // normative and informative, so the flags are not exclusive.
+  type SpecReferenceIndex = Map<string, Map<string, SpecReference>>
+  const referencesBySpec: SpecReferenceIndex = new Map()
+  const citedByBySpec: SpecReferenceIndex = new Map()
+
+  const addSpecReference = (
+    index: SpecReferenceIndex,
+    specUri: string,
+    otherUri: string,
+    otherName: string | undefined,
+    otherShortname: string | undefined,
+    predicate: string | undefined,
+  ) => {
+    if (!predicate) return
+    let references = index.get(specUri)
+    if (!references) {
+      references = new Map()
+      index.set(specUri, references)
+    }
+    let reference = references.get(otherUri)
+    if (!reference) {
+      reference = {
+        id: short(otherUri),
+        uri: otherUri,
+        name: otherName ?? short(otherUri),
+        ...(otherShortname ? { shortname: otherShortname } : {}),
+        normative: false,
+        informative: false,
+      }
+      references.set(otherUri, reference)
+    }
+    if (predicate === `${EX}normativeRef`) reference.normative = true
+    if (predicate === `${EX}informativeRef`) reference.informative = true
+  }
+
+  for (const b of outgoingRows) {
+    const spec = value(b, 'spec')
+    const target = value(b, 'target')
+    if (!spec || !target) continue
+    addSpecReference(
+      referencesBySpec,
+      spec,
+      target,
+      value(b, 'targetName'),
+      value(b, 'targetShortname'),
+      value(b, 'predicate'),
+    )
+  }
+  for (const b of incomingRows) {
+    const spec = value(b, 'spec')
+    const source = value(b, 'source')
+    if (!spec || !source) continue
+    addSpecReference(
+      citedByBySpec,
+      spec,
+      source,
+      value(b, 'sourceName'),
+      value(b, 'sourceShortname'),
+      value(b, 'predicate'),
+    )
+  }
+
+  // Normative first, then informative, then (should not happen) unflagged.
+  // A target that is both keeps its place in the normative group and shows
+  // both icons.
+  const citationRank = (reference: SpecReference) =>
+    reference.normative ? 0 : reference.informative ? 1 : 2
+  const sortedReferences = (index: SpecReferenceIndex, uri: string) =>
+    [...(index.get(uri)?.values() ?? [])].sort(
+      (a, b) =>
+        citationRank(a) - citationRank(b) || a.name.localeCompare(b.name),
+    )
+
   const specs = new Map<string, Specification>()
   for (const b of rows) {
     const uri = value(b, 'spec')
@@ -313,6 +412,8 @@ async function sparqlSpecifications(): Promise<Specification[]> {
         groups: [],
         groupUris: [],
         w3cApiUrl: value(b, 'w3cApiUrl'),
+        references: [],
+        citedBy: [],
       }
       specs.set(uri, spec)
     }
@@ -348,6 +449,8 @@ async function sparqlSpecifications(): Promise<Specification[]> {
     spec.editors.sort((a, b) => a.name.localeCompare(b.name))
     spec.groups.sort((a, b) => a.localeCompare(b))
     spec.groupUris.sort((a, b) => a.localeCompare(b))
+    spec.references = sortedReferences(referencesBySpec, spec.uri)
+    spec.citedBy = sortedReferences(citedByBySpec, spec.uri)
   }
   return [...specs.values()].sort((a, b) => a.name.localeCompare(b.name))
 }

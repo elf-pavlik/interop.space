@@ -2,6 +2,7 @@ import type { Component } from 'solid-js'
 import { For, Match, Show, Switch, onMount } from 'solid-js'
 import { A, useParams } from '@solidjs/router'
 import { ContributorSection } from '../components/ContributorChips'
+import { SpecReferenceSection } from '../components/SpecReferences'
 import { appActor } from '../store/app'
 import {
   groupByName,
@@ -113,6 +114,20 @@ const SpecificationDetail: Component = () => {
                 title="Authors"
                 people={s().authors}
                 empty="No authors recorded in the catalog."
+              />
+
+              <SpecReferenceSection
+                id="references"
+                title="References"
+                references={s().references}
+                empty="No W3C references resolved from the latest version."
+              />
+
+              <SpecReferenceSection
+                id="referenced-by"
+                title="Referenced by"
+                references={s().citedBy}
+                empty="No catalog specification references this one."
               />
 
               <div class="space-y-3">

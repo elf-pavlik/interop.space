@@ -145,6 +145,7 @@ export class DcentQuest {
       // does not contain yet. Without a dump it starts from the fallback
       // GitHub account.
       .withEnvVariable("DUMP_PATH", "/seed/dump.nq")
+      .withEnvVariable("CITATIONS_REPORT_PATH", "/tmp/citations-report.json")
       .withMountedDirectory("/seed", source.directory("ui/public"))
       .withDirectory("/app", source.directory("typescript"))
       .withWorkdir("/app")
@@ -179,7 +180,7 @@ export class DcentQuest {
   }
 
   @func({ cache: "never" })
-  async exportDump(source: Directory): Promise<File> {
+  async exportDump(source: Directory): Promise<Directory> {
     const runId = `run-${Date.now().toString(36)}`
     const temporal = await this.temporal(source, runId)
     const sparql = this.sparqlService(source)
@@ -190,7 +191,7 @@ export class DcentQuest {
     // Run the client. It uses workflow.execute, so it blocks until the W3C
     // workflow completes — the workers must be bound here (not only to the
     // dump container) so they pick up the tasks while the client waits.
-    await dag
+    const clientContainer = await dag
       .container()
       .from("oven/bun:1.3")
       .withServiceBinding("temporal", temporal)
@@ -209,7 +210,7 @@ export class DcentQuest {
     // The RUN_ID env var makes this container's exec graph run-unique:
     // without it, the contention-curl exec is identical across sessions and
     // the engine replays the previous run's /dump.nq from cache.
-    return dag
+    const dump = dag
       .container()
       .from("alpine:latest")
       .withEnvVariable("RUN_ID", runId)
@@ -221,6 +222,14 @@ export class DcentQuest {
           "http://sparql/sparql -o /dump.nq",
       ])
       .file("/dump.nq")
+
+    return dag
+      .directory()
+      .withFile("dump.nq", dump)
+      .withFile(
+        "citations-report.json",
+        clientContainer.file("/tmp/citations-report.json"),
+      )
   }
 
   @func({ cache: "never" })

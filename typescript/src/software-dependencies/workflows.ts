@@ -13,11 +13,6 @@ const {
   applyDependencyUpdate,
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: '10 minutes',
-  retry: {
-    maximumAttempts: 3,
-    initialInterval: '2 seconds',
-    backoffCoefficient: 2,
-  },
 })
 
 export interface CatalogDependencyResult {

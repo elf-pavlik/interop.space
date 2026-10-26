@@ -25,6 +25,17 @@ export type Software = {
   dependencies: string[] // names of linked software (ex:hasDependencyOn targets)
 }
 
+export type CitationNature = 'normative' | 'informative'
+
+export type SpecReference = {
+  id: string // short display/URL form of the referenced spec
+  uri: string // canonical shortlink of the referenced spec
+  name: string
+  shortname?: string
+  normative: boolean
+  informative: boolean
+}
+
 export type SpecContributor = {
   uri?: string // person URN when the author/editor is resolved
   id?: string // short display/URL form of the person
@@ -45,6 +56,8 @@ export type Specification = {
   groups: string[] // names of W3C groups that deliver the spec
   groupUris: string[] // canonical group IRIs that deliver the spec
   w3cApiUrl?: string // W3C API self link
+  references: SpecReference[] // specs this one cites (normative/informative)
+  citedBy: SpecReference[] // specs that cite this one
 }
 
 export type W3cParticipant = {

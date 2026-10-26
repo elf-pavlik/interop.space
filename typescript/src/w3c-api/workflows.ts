@@ -5,6 +5,7 @@
 // without any ex:specification link get their specs fetched.
 import { proxyActivities } from '@temporalio/workflow'
 import type * as activities from './activities'
+import type { CitationReport } from '../citations/report.ts'
 
 const {
   loadSeed,
@@ -13,13 +14,9 @@ const {
   fetchW3cSpecifications,
   seedBase,
   storeW3cData,
+  storeW3cCitations,
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: '10 minutes',
-  retry: {
-    maximumAttempts: 3,
-    initialInterval: '2 seconds',
-    backoffCoefficient: 2,
-  },
 })
 
 export interface W3cApiResult {
@@ -35,6 +32,7 @@ export interface W3cApiResult {
   specGroups: number
   specifications: number
   stored: string
+  citations: { summary: string; report: CitationReport }
 }
 
 export async function w3cApiWorkflow(): Promise<W3cApiResult> {
@@ -60,6 +58,7 @@ export async function w3cApiWorkflow(): Promise<W3cApiResult> {
 
   await seedBase(seed)
   const stored = await storeW3cData(seed, fetched, specs)
+  const citations = await storeW3cCitations()
   return {
     source: seed.source,
     people: seed.people,
@@ -70,5 +69,6 @@ export async function w3cApiWorkflow(): Promise<W3cApiResult> {
     specGroups: specificationGroups.length,
     specifications: specs.reduce((n, g) => n + g.specifications.length, 0),
     stored,
+    citations,
   }
 }
